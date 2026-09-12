@@ -1,0 +1,17 @@
+# PlatformIO build artifacts
+.pio/
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Secrets / local overrides
+secrets.h
+local_config.h
