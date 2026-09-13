@@ -319,8 +319,8 @@ void loop() {
             ui_pcap_update();
 
             // Storage warning when >80% full
-            uint32_t total = pcap_fs_total();
-            uint32_t used  = pcap_fs_used();
+            uint64_t total = pcap_fs_total();
+            uint64_t used  = pcap_fs_used();
             if (total > 0 && used > total * 4 / 5)
                 ui_pcap_show_storage_warning(true);
         }

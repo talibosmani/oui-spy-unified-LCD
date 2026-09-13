@@ -24,10 +24,10 @@ void pcap_tick();
 void pcap_get_stats(PcapStats *out);
 
 // Returns total bytes used across all /pcap_*.pcap files.
-uint32_t pcap_fs_used();
+uint64_t pcap_fs_used();
 
 // Returns total LittleFS capacity in bytes.
-uint32_t pcap_fs_total();
+uint64_t pcap_fs_total();
 
 // Delete all pcap files. Returns number deleted.
 int pcap_delete_all();

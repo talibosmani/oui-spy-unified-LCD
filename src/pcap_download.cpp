@@ -19,7 +19,7 @@ static WebServer *s_server  = nullptr;
 static bool       s_active  = false;
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
-static float bytes_to_mb(size_t b) { return (float)b / (1024.0f * 1024.0f); }
+static float bytes_to_mb(uint64_t b) { return (float)b / (1024.0f * 1024.0f); }
 
 // Labels for each JSON log file shown in the download page
 struct JsonLogLabel { const char *filename; const char *icon; const char *color; const char *title; };

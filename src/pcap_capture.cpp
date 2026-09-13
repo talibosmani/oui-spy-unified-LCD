@@ -177,14 +177,14 @@ void pcap_get_stats(PcapStats *out) {
     if (out) *out = s_stats;
 }
 
-uint32_t pcap_fs_used() {
+uint64_t pcap_fs_used() {
     if (!s_fs_ok) return 0;
-    return (uint32_t)storage_used_bytes();
+    return storage_used_bytes();
 }
 
-uint32_t pcap_fs_total() {
+uint64_t pcap_fs_total() {
     if (!s_fs_ok) return 1;
-    return (uint32_t)storage_total_bytes();
+    return storage_total_bytes();
 }
 
 bool pcap_is_running() { return s_running; }
