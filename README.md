@@ -31,6 +31,11 @@ This project ports and extends that work onto a different hardware platform with
 | Audio PA enable | 46 |
 | I2C SDA | 15 |
 | I2C SCL | 14 |
+| SD CMD (onboard slot) | 1 |
+| SD CLK (onboard slot) | 2 |
+| SD D0 (onboard slot) | 3 |
+
+The onboard microSD slot is driven in SDMMC 1-bit mode. No external wiring is required. Detection logs and PCAP captures are written to the card when present, otherwise to internal LittleFS. If the card is unformatted or exFAT, a boot-time dialog offers to format it as FAT32.
 
 ---
 

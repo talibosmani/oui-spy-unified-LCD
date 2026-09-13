@@ -13,10 +13,11 @@ void ui_chrome_update_battery(uint8_t pct, bool charging);
 void ui_chrome_update_storage(bool has_sd);
 
 // Show a full-screen SD card dialog (boot-time).
-// on_format: called if user taps "Format SD Card".
-// on_continue: called when user dismisses (either button path).
-using StorageFormatCb = void(*)();
-void ui_chrome_show_sd_dialog(StorageFormatCb on_format, StorageFormatCb on_continue);
+// probe_text: diagnostic line shown under the title (e.g. "No response").
+// on_format:  called when user taps Format; return nullptr on success (dialog
+//             closes) or an error string (shown in the dialog, which stays open).
+using SdFormatCb = const char* (*)();
+void ui_chrome_show_sd_dialog(const char *probe_text, SdFormatCb on_format);
 
 // Show/hide the bottom exit button (hidden on the menu screen).
 void ui_chrome_show_exit(bool show);

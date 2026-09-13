@@ -12,7 +12,6 @@ static lv_obj_t      *s_bat_label    = nullptr;
 static lv_obj_t      *s_store_label  = nullptr;
 static lv_obj_t      *s_exit_btn     = nullptr;
 static ChromeExitCb   s_exit_cb      = nullptr;
-static StorageFormatCb s_format_cb   = nullptr;
 static bool           s_has_sd       = false;
 
 static const char *bat_symbol(uint8_t pct) {
@@ -31,21 +30,31 @@ static void on_exit_clicked(lv_event_t *e) {
 // ---- SD card boot dialog -------------------------------------------------------
 
 struct SdDialogCtx {
-    StorageFormatCb on_format;
-    StorageFormatCb on_continue;
-    lv_obj_t       *overlay;
+    SdFormatCb  on_format;
+    lv_obj_t   *overlay;
+    lv_obj_t   *status;
 };
 static SdDialogCtx s_sd_ctx;
 
+static void sd_dialog_close() {
+    if (s_sd_ctx.overlay) lv_obj_del(s_sd_ctx.overlay);
+    s_sd_ctx.overlay = nullptr;
+    s_sd_ctx.status  = nullptr;
+}
+
 static void sd_dialog_btn_cb(lv_event_t *e) {
     bool do_format = (lv_event_get_user_data(e) != nullptr);
-    lv_obj_del(s_sd_ctx.overlay);
-    s_sd_ctx.overlay = nullptr;
-    if (do_format && s_sd_ctx.on_format) {
-        s_sd_ctx.on_format();
-    } else if (s_sd_ctx.on_continue) {
-        s_sd_ctx.on_continue();
-    }
+    if (!do_format) { sd_dialog_close(); return; }
+
+    lv_label_set_text(s_sd_ctx.status, "Formatting...");
+    lv_obj_set_style_text_color(s_sd_ctx.status, lv_color_hex(0xffffff), 0);
+    lv_refr_now(nullptr); // paint the "Formatting..." line before the blocking call
+
+    const char *err = s_sd_ctx.on_format ? s_sd_ctx.on_format() : "no handler";
+    if (!err) { sd_dialog_close(); return; }
+
+    lv_label_set_text(s_sd_ctx.status, err);
+    lv_obj_set_style_text_color(s_sd_ctx.status, lv_color_hex(0xff4545), 0);
 }
 
 void ui_chrome_begin() {
@@ -151,9 +160,8 @@ void ui_chrome_update_storage(bool has_sd) {
     }
 }
 
-void ui_chrome_show_sd_dialog(StorageFormatCb on_format, StorageFormatCb on_continue) {
-    s_sd_ctx.on_format   = on_format;
-    s_sd_ctx.on_continue = on_continue;
+void ui_chrome_show_sd_dialog(const char *probe_text, SdFormatCb on_format) {
+    s_sd_ctx.on_format = on_format;
 
     // Overlay on lv_layer_top() so it survives screen loads and sits above the menu
     lv_obj_t *ov = lv_obj_create(lv_layer_top());
@@ -174,9 +182,11 @@ void ui_chrome_show_sd_dialog(StorageFormatCb on_format, StorageFormatCb on_cont
     lv_obj_set_style_text_color(title, lv_color_hex(0xffffff), 0);
     lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 70);
 
-    // Status line
+    // Status line — probe result, later replaced by format outcome
     lv_obj_t *status = lv_label_create(ov);
-    lv_label_set_text(status, "Not detected — using internal flash");
+    s_sd_ctx.status = status;
+    lv_label_set_text(status, probe_text);
+    lv_label_set_long_mode(status, LV_LABEL_LONG_WRAP);
     lv_obj_set_style_text_font(status, &lv_font_montserrat_14, 0);
     lv_obj_set_style_text_color(status, lv_color_hex(0xffaa00), 0);
     lv_obj_set_style_text_align(status, LV_TEXT_ALIGN_CENTER, 0);
@@ -185,7 +195,7 @@ void ui_chrome_show_sd_dialog(StorageFormatCb on_format, StorageFormatCb on_cont
 
     // Wiring hint
     lv_obj_t *hint = lv_label_create(ov);
-    lv_label_set_text(hint, "Wiring:  CS=17  MOSI=18  CLK=16  MISO=13\nVCC=3.3V   GND=GND");
+    lv_label_set_text(hint, "Insert a microSD card in the slot on the back.\nCards over 32 GB ship as exFAT - use Format below.");
     lv_obj_set_style_text_font(hint, &lv_font_montserrat_14, 0);
     lv_obj_set_style_text_color(hint, lv_color_hex(0x666666), 0);
     lv_obj_set_style_text_align(hint, LV_TEXT_ALIGN_CENTER, 0);

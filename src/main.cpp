@@ -153,11 +153,7 @@ void setup() {
 
     pinMode(PIN_BOOT_BUTTON, INPUT_PULLUP);
 
-    // Init storage FIRST so SD card power surge happens before display init.
-    // SD.begin() can cause a 3.3V rail dip that corrupts the CO5300 if the
-    // display is already running.
     storage_begin();
-    delay(50); // let rail stabilise before display init
 
     if (!display::begin()) {
         Serial.println("[main] display init FAILED — halting");
@@ -194,10 +190,11 @@ void setup() {
     // Must come after ui_menu_create(): the dialog lives on lv_layer_top() and
     // is shown over the loaded menu screen.
     if (!storage_has_sd()) {
-        ui_chrome_show_sd_dialog(
-            []() { if (storage_format_sd()) ui_chrome_update_storage(true); },
-            nullptr
-        );
+        ui_chrome_show_sd_dialog(storage_sd_probe(), []() -> const char* {
+            if (!storage_format_sd()) return storage_last_error();
+            ui_chrome_update_storage(true);
+            return nullptr;
+        });
     }
     Serial.println("[main] ready");
 }

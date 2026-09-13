@@ -43,15 +43,12 @@
 #define PIN_I2S_DIN   10
 #define PIN_AUDIO_PA  46
 
-// ---------- SD card (SPI) ----------
-// Wire a standard microSD breakout to these pins.
-// VCC → 3.3V, GND → GND
-// CS   → GPIO 17   MOSI → GPIO 21
-// CLK  → GPIO 16   MISO → GPIO 13
-#define PIN_SD_CS    17
-#define PIN_SD_MOSI  21
-#define PIN_SD_MISO  13
-#define PIN_SD_SCK   16
+// ---------- Onboard microSD (SDMMC 1-bit) ----------
+// Pins from Waveshare HARDWARE_REFERENCE.md. D3/CS is GPIO41 but unused in
+// 1-bit mode. GPIO1/2/3 must not be repurposed while the card is mounted.
+#define PIN_SD_CMD    1
+#define PIN_SD_CLK    2
+#define PIN_SD_D0     3
 
 // ---------- BLE detector ----------
 #define DET_QUEUE_DEPTH    32   // max detections queued between BLE task and LVGL task
