@@ -62,8 +62,8 @@ void ui_chrome_begin() {
     // A 170px-wide pill centred on the screen is safe at all those y values.
     lv_obj_t *bar = lv_obj_create(layer);
     lv_obj_remove_style_all(bar);
-    lv_obj_set_pos(bar, (SCREEN_W - 210) / 2, 5);
-    lv_obj_set_size(bar, 210, 26);
+    lv_obj_set_pos(bar, (SCREEN_W - 220) / 2, 5);
+    lv_obj_set_size(bar, 220, 26);
     lv_obj_set_style_bg_color(bar, lv_color_hex(0x000000), 0);
     lv_obj_set_style_bg_opa(bar, LV_OPA_70, 0);
     lv_obj_set_style_radius(bar, 13, 0);
@@ -92,14 +92,25 @@ void ui_chrome_begin() {
     lv_obj_set_style_text_font(div, &lv_font_montserrat_14, 0);
     lv_obj_set_style_text_color(div, lv_color_hex(0x444444), 0);
 
-    // Storage indicator — tappable to show format dialog
-    s_store_label = lv_label_create(bar);
+    // Storage button — large tap target, sits in the status bar flex row
+    lv_obj_t *store_btn = lv_obj_create(bar);
+    lv_obj_remove_style_all(store_btn);
+    lv_obj_set_size(store_btn, 52, 26);
+    lv_obj_set_style_bg_opa(store_btn, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_bg_color(store_btn, lv_color_hex(0x333333), LV_STATE_PRESSED);
+    lv_obj_set_style_bg_opa(store_btn, LV_OPA_40, LV_STATE_PRESSED);
+    lv_obj_set_style_radius(store_btn, 6, 0);
+    lv_obj_set_style_border_width(store_btn, 0, 0);
+    lv_obj_clear_flag(store_btn, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_scroll_dir(store_btn, LV_DIR_NONE);
+    lv_obj_add_flag(store_btn, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_event_cb(store_btn, on_storage_label_clicked, LV_EVENT_CLICKED, nullptr);
+
+    s_store_label = lv_label_create(store_btn);
     lv_label_set_text(s_store_label, "LFS");
-    lv_obj_set_style_text_font(s_store_label, &lv_font_montserrat_14, 0);
+    lv_obj_set_style_text_font(s_store_label, &lv_font_montserrat_16, 0);
     lv_obj_set_style_text_color(s_store_label, lv_color_hex(0x888888), 0);
-    lv_obj_add_flag(s_store_label, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_set_ext_click_area(s_store_label, 12);
-    lv_obj_add_event_cb(s_store_label, on_storage_label_clicked, LV_EVENT_CLICKED, nullptr);
+    lv_obj_center(s_store_label);
 
     // ---- Exit button (bottom-center, hidden by default) ----
     // 64×64 circle; bottom margin 10px → top at SCREEN_H-74=392.
