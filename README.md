@@ -86,12 +86,18 @@ The original project has no audio output. This build adds:
 | **BLE SNIFF** | Unfiltered advertisement log — every advertising device in range, timestamped |
 | **FOX HUNT** | WiFi RSSI-based transmitter direction finding |
 | **SKY SPY** | Drone-focused detection (DJI, Skydio, Parrot) with dedicated log |
-| **PCAP** | Raw 802.11 packet capture to LittleFS, downloadable over WiFi |
+| **PCAP** | Raw 802.11 packet capture to the SD card (or LittleFS), downloadable over WiFi |
 | **SELF TEST** | Swipe-left panel to verify touch, audio, and system health before field use |
+
+### Matching rules and false-positive control
+
+- **OUI prefixes are only compared on public BLE addresses.** Phones rotate random (private) addresses every ~15 minutes; those carry no vendor OUI, so comparing them against the prefix table is pure chance and is skipped.
+- **Meta Ray-Ban requires company ID and service UUID together** (or a device-name match). Company ID alone would flag any Meta product.
+- **One device is one detection.** A re-alert of a MAC already on screen refreshes its RSSI and moves it to the top instead of adding a duplicate row. The footer shows the number of distinct devices seen this session; the repeat count lives in the log file as `times_seen`.
 
 ### JSON detection logging
 
-Every match is written to `/detections.json` on LittleFS:
+Every match is written to `/ble_detect_log.json` on the SD card, or LittleFS if no card is present:
 
 ```json
 {
@@ -101,15 +107,25 @@ Every match is written to `/detections.json` on LittleFS:
   "first_seen": 12345,
   "last_seen": 67890,
   "times_seen": 3,
-  "rssi": -62
+  "rssi_peak": -62
 }
 ```
 
+Writes are deferred: a new entry is flushed within 2 seconds, updates to existing entries at most once a minute. The same policy applies to the BLE Sniff, Sky Spy and Flock-You logs. Debug-mode scan rows are never written to the detection log.
+
 ### Debug mode
 
-A long-press on the mode button enables debug mode, which shows every unmatched BLE device in the detector list (grey badge, rate-limited to 4 new entries per second to avoid heap pressure in dense environments).
+The **DBG** toggle in the quick-settings panel (swipe down from the top) shows every unmatched BLE device in the detector list with a grey badge, rate-limited to 4 new entries per second. In debug mode the footer separates real hits from scan noise: `0 hits · 37 scanned`. Scan rows are shown but not logged.
 
 ---
+
+## Flashing a release
+
+Each [release](https://github.com/talibosmani/oui-spy-unified-LCD/releases) ships a merged image for offset `0x0`, so no PlatformIO is needed:
+
+```bash
+esptool.py --chip esp32s3 --port /dev/cu.usbmodemXXXX write_flash 0x0 oui-spy-vX.Y.Z-esp32s3-amoled-1.75.bin
+```
 
 ## Build
 
