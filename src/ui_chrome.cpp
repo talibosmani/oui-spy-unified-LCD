@@ -155,8 +155,8 @@ void ui_chrome_show_sd_dialog(StorageFormatCb on_format, StorageFormatCb on_cont
     s_sd_ctx.on_format   = on_format;
     s_sd_ctx.on_continue = on_continue;
 
-    // Full-screen semi-transparent overlay on lv_scr_act() so it gets touch events normally
-    lv_obj_t *ov = lv_obj_create(lv_scr_act());
+    // Overlay on lv_layer_top() so it survives screen loads and sits above the menu
+    lv_obj_t *ov = lv_obj_create(lv_layer_top());
     s_sd_ctx.overlay = ov;
     lv_obj_remove_style_all(ov);
     lv_obj_set_size(ov, SCREEN_W, SCREEN_H);
@@ -165,6 +165,7 @@ void ui_chrome_show_sd_dialog(StorageFormatCb on_format, StorageFormatCb on_cont
     lv_obj_set_style_bg_opa(ov, LV_OPA_COVER, 0);
     lv_obj_set_style_border_width(ov, 0, 0);
     lv_obj_clear_flag(ov, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_add_flag(ov, LV_OBJ_FLAG_CLICKABLE); // absorb touches so the menu underneath is inert
 
     // Title
     lv_obj_t *title = lv_label_create(ov);

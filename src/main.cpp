@@ -185,21 +185,20 @@ void setup() {
     ui_chrome_update_battery(bat.pct, bat.charging);
 
     ui_chrome_update_storage(storage_has_sd());
-    if (!storage_has_sd()) {
-        ui_chrome_show_sd_dialog(
-            // on_format
-            []() {
-                if (storage_format_sd()) ui_chrome_update_storage(true);
-            },
-            // on_continue — nothing extra needed
-            nullptr
-        );
-    }
 
     // Audio init last — WiFi/BLE clocks must be stable before I2S starts
     audio_init();
 
     ui_menu_create(on_mode_selected);
+
+    // Must come after ui_menu_create(): the dialog lives on lv_layer_top() and
+    // is shown over the loaded menu screen.
+    if (!storage_has_sd()) {
+        ui_chrome_show_sd_dialog(
+            []() { if (storage_format_sd()) ui_chrome_update_storage(true); },
+            nullptr
+        );
+    }
     Serial.println("[main] ready");
 }
 
