@@ -12,9 +12,11 @@ void ui_chrome_update_battery(uint8_t pct, bool charging);
 // Update the storage indicator ("SD" or "LFS").
 void ui_chrome_update_storage(bool has_sd);
 
-// Callback invoked when user confirms "Format SD Card".
+// Show a full-screen SD card dialog (boot-time).
+// on_format: called if user taps "Format SD Card".
+// on_continue: called when user dismisses (either button path).
 using StorageFormatCb = void(*)();
-void ui_chrome_set_format_sd_cb(StorageFormatCb cb);
+void ui_chrome_show_sd_dialog(StorageFormatCb on_format, StorageFormatCb on_continue);
 
 // Show/hide the bottom exit button (hidden on the menu screen).
 void ui_chrome_show_exit(bool show);

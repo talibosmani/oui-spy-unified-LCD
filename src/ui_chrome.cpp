@@ -28,28 +28,24 @@ static void on_exit_clicked(lv_event_t *e) {
     if (s_exit_cb) s_exit_cb();
 }
 
-static void on_format_dialog_btn(lv_event_t *e) {
-    lv_obj_t *btn = (lv_obj_t *)lv_event_get_target(e);
-    lv_obj_t *mbox = lv_obj_get_parent(lv_obj_get_parent(btn));
-    uint16_t idx = lv_msgbox_get_active_btn(mbox);
-    lv_msgbox_close(mbox);
-    if (idx == 0 && s_format_cb) s_format_cb(); // "Format" button
-}
+// ---- SD card boot dialog -------------------------------------------------------
 
-static void on_storage_label_clicked(lv_event_t *e) {
-    (void)e;
-    if (s_has_sd) return; // already on SD, nothing to do
+struct SdDialogCtx {
+    StorageFormatCb on_format;
+    StorageFormatCb on_continue;
+    lv_obj_t       *overlay;
+};
+static SdDialogCtx s_sd_ctx;
 
-    static const char *btns[] = {"Format SD", "Cancel", ""};
-    lv_obj_t *mbox = lv_msgbox_create(lv_layer_top(), "SD Card",
-        "No SD card detected.\n\n"
-        "Make sure it is FAT32 formatted and wired correctly:\n"
-        "CS=17  MOSI=18  CLK=16  MISO=13\n\n"
-        "Tap 'Format SD' to format a detected card as FAT32.",
-        btns, false);
-    lv_obj_set_width(mbox, 320);
-    lv_obj_center(mbox);
-    lv_obj_add_event_cb(lv_msgbox_get_btns(mbox), on_format_dialog_btn, LV_EVENT_CLICKED, nullptr);
+static void sd_dialog_btn_cb(lv_event_t *e) {
+    bool do_format = (lv_event_get_user_data(e) != nullptr);
+    lv_obj_del(s_sd_ctx.overlay);
+    s_sd_ctx.overlay = nullptr;
+    if (do_format && s_sd_ctx.on_format) {
+        s_sd_ctx.on_format();
+    } else if (s_sd_ctx.on_continue) {
+        s_sd_ctx.on_continue();
+    }
 }
 
 void ui_chrome_begin() {
@@ -92,25 +88,11 @@ void ui_chrome_begin() {
     lv_obj_set_style_text_font(div, &lv_font_montserrat_14, 0);
     lv_obj_set_style_text_color(div, lv_color_hex(0x444444), 0);
 
-    // Storage button — large tap target, sits in the status bar flex row
-    lv_obj_t *store_btn = lv_obj_create(bar);
-    lv_obj_remove_style_all(store_btn);
-    lv_obj_set_size(store_btn, 52, 26);
-    lv_obj_set_style_bg_opa(store_btn, LV_OPA_TRANSP, 0);
-    lv_obj_set_style_bg_color(store_btn, lv_color_hex(0x333333), LV_STATE_PRESSED);
-    lv_obj_set_style_bg_opa(store_btn, LV_OPA_40, LV_STATE_PRESSED);
-    lv_obj_set_style_radius(store_btn, 6, 0);
-    lv_obj_set_style_border_width(store_btn, 0, 0);
-    lv_obj_clear_flag(store_btn, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_set_scroll_dir(store_btn, LV_DIR_NONE);
-    lv_obj_add_flag(store_btn, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_add_event_cb(store_btn, on_storage_label_clicked, LV_EVENT_CLICKED, nullptr);
-
-    s_store_label = lv_label_create(store_btn);
+    // Storage indicator — display only (dialog shown at boot via ui_chrome_show_sd_dialog)
+    s_store_label = lv_label_create(bar);
     lv_label_set_text(s_store_label, "LFS");
     lv_obj_set_style_text_font(s_store_label, &lv_font_montserrat_16, 0);
-    lv_obj_set_style_text_color(s_store_label, lv_color_hex(0x888888), 0);
-    lv_obj_center(s_store_label);
+    lv_obj_set_style_text_color(s_store_label, lv_color_hex(0xffaa00), 0);
 
     // ---- Exit button (bottom-center, hidden by default) ----
     // 64×64 circle; bottom margin 10px → top at SCREEN_H-74=392.
@@ -169,4 +151,69 @@ void ui_chrome_update_storage(bool has_sd) {
     }
 }
 
-void ui_chrome_set_format_sd_cb(StorageFormatCb cb) { s_format_cb = cb; }
+void ui_chrome_show_sd_dialog(StorageFormatCb on_format, StorageFormatCb on_continue) {
+    s_sd_ctx.on_format   = on_format;
+    s_sd_ctx.on_continue = on_continue;
+
+    // Full-screen semi-transparent overlay on lv_scr_act() so it gets touch events normally
+    lv_obj_t *ov = lv_obj_create(lv_scr_act());
+    s_sd_ctx.overlay = ov;
+    lv_obj_remove_style_all(ov);
+    lv_obj_set_size(ov, SCREEN_W, SCREEN_H);
+    lv_obj_set_pos(ov, 0, 0);
+    lv_obj_set_style_bg_color(ov, lv_color_hex(0x0a0a0a), 0);
+    lv_obj_set_style_bg_opa(ov, LV_OPA_COVER, 0);
+    lv_obj_set_style_border_width(ov, 0, 0);
+    lv_obj_clear_flag(ov, LV_OBJ_FLAG_SCROLLABLE);
+
+    // Title
+    lv_obj_t *title = lv_label_create(ov);
+    lv_label_set_text(title, LV_SYMBOL_SD_CARD "  SD Card");
+    lv_obj_set_style_text_font(title, &lv_font_montserrat_20, 0);
+    lv_obj_set_style_text_color(title, lv_color_hex(0xffffff), 0);
+    lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 70);
+
+    // Status line
+    lv_obj_t *status = lv_label_create(ov);
+    lv_label_set_text(status, "Not detected — using internal flash");
+    lv_obj_set_style_text_font(status, &lv_font_montserrat_14, 0);
+    lv_obj_set_style_text_color(status, lv_color_hex(0xffaa00), 0);
+    lv_obj_set_style_text_align(status, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_set_width(status, 340);
+    lv_obj_align(status, LV_ALIGN_TOP_MID, 0, 110);
+
+    // Wiring hint
+    lv_obj_t *hint = lv_label_create(ov);
+    lv_label_set_text(hint, "Wiring:  CS=17  MOSI=18  CLK=16  MISO=13\nVCC=3.3V   GND=GND");
+    lv_obj_set_style_text_font(hint, &lv_font_montserrat_14, 0);
+    lv_obj_set_style_text_color(hint, lv_color_hex(0x666666), 0);
+    lv_obj_set_style_text_align(hint, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_set_width(hint, 360);
+    lv_obj_align(hint, LV_ALIGN_CENTER, 0, -10);
+
+    // Format button (big, green)
+    lv_obj_t *fmt_btn = lv_btn_create(ov);
+    lv_obj_set_size(fmt_btn, 260, 56);
+    lv_obj_align(fmt_btn, LV_ALIGN_BOTTOM_MID, 0, -90);
+    lv_obj_set_style_bg_color(fmt_btn, lv_color_hex(0x1a6e3a), 0);
+    lv_obj_set_style_bg_color(fmt_btn, lv_color_hex(0x24a854), LV_STATE_PRESSED);
+    lv_obj_set_style_radius(fmt_btn, 12, 0);
+    lv_obj_add_event_cb(fmt_btn, sd_dialog_btn_cb, LV_EVENT_CLICKED, (void*)1); // non-null = format
+    lv_obj_t *fmt_lbl = lv_label_create(fmt_btn);
+    lv_label_set_text(fmt_lbl, LV_SYMBOL_SD_CARD "  Format SD Card as FAT32");
+    lv_obj_set_style_text_font(fmt_lbl, &lv_font_montserrat_16, 0);
+    lv_obj_center(fmt_lbl);
+
+    // Continue button (smaller, grey)
+    lv_obj_t *cont_btn = lv_btn_create(ov);
+    lv_obj_set_size(cont_btn, 260, 48);
+    lv_obj_align(cont_btn, LV_ALIGN_BOTTOM_MID, 0, -28);
+    lv_obj_set_style_bg_color(cont_btn, lv_color_hex(0x2a2a2a), 0);
+    lv_obj_set_style_bg_color(cont_btn, lv_color_hex(0x3a3a3a), LV_STATE_PRESSED);
+    lv_obj_set_style_radius(cont_btn, 12, 0);
+    lv_obj_add_event_cb(cont_btn, sd_dialog_btn_cb, LV_EVENT_CLICKED, nullptr); // null = continue
+    lv_obj_t *cont_lbl = lv_label_create(cont_btn);
+    lv_label_set_text(cont_lbl, "Continue with internal flash");
+    lv_obj_set_style_text_font(cont_lbl, &lv_font_montserrat_14, 0);
+    lv_obj_center(cont_lbl);
+}
