@@ -1,7 +1,6 @@
 // Quick-settings card — slides from above screen to center on swipe-down gesture.
 // Centered 295px floating card: safe on 466×466 round AMOLED at all positions.
-// Controls: VOL slider + MUTE, BRT slider, DISPLAY [NORMAL/RED], SOUND [VOICE/TONE],
-//           STEALTH MODE button.
+// Controls: VOL slider + MUTE, BRT slider, SOUND [VOICE/TONE], DEBUG toggle.
 #include "ui_quicksettings.h"
 #include "config.h"
 #include "display.h"
@@ -30,12 +29,7 @@ static lv_obj_t *s_mute_btn     = nullptr;
 static lv_obj_t *s_mute_lbl     = nullptr;
 static lv_obj_t *s_voice_btn    = nullptr;
 static lv_obj_t *s_tone_btn     = nullptr;
-static lv_obj_t *s_stealth_btn  = nullptr;
-static lv_obj_t *s_stealth_lbl  = nullptr;
 static bool      s_open          = false;
-static bool      s_in_stealth    = false;
-static uint8_t   s_stealth_brt   = BRT_DEFAULT;
-static bool      s_stealth_muted = false;
 static lv_timer_t *s_idle_tmr    = nullptr;
 static uint32_t  s_last_activity = 0;
 static lv_obj_t *s_anim_block   = nullptr; // full-screen touch blocker during slide
@@ -123,7 +117,6 @@ static void on_vol_changed(lv_event_t *e) {
 
 static void on_brt_changed(lv_event_t *e) {
     s_last_activity = millis();
-    if (s_in_stealth) return;  // stealth controls its own brightness
     lv_obj_t *sld = (lv_obj_t *)lv_event_get_target(e);
     int pct = lv_slider_get_value(sld);
     uint8_t brt = (uint8_t)(20 + ((uint32_t)pct * 235u) / 100u);
@@ -152,38 +145,6 @@ static void on_sound_tone(lv_event_t *e) {
     audio_set_voice_mode(false);
     pill_set_active(s_voice_btn, false);
     pill_set_active(s_tone_btn, true);
-}
-
-// ── Stealth mode ──────────────────────────────────────────────────────────────
-
-static void on_stealth_clicked(lv_event_t *e) {
-    (void)e;
-    s_last_activity = millis();
-    s_in_stealth = !s_in_stealth;
-    if (s_in_stealth) {
-        if (s_brt_sld) s_stealth_brt = (uint8_t)lv_slider_get_value(s_brt_sld);
-        display::setBrightness(15);
-        if (!audio_is_muted()) { audio_mute_toggle(); s_stealth_muted = true; }
-        if (s_stealth_lbl) lv_label_set_text(s_stealth_lbl, "EXIT STEALTH");
-        if (s_stealth_btn) {
-            lv_obj_set_style_bg_color(s_stealth_btn, lv_color_hex(0x200A0A), 0);
-            lv_obj_set_style_border_color(s_stealth_btn, lv_color_hex(0xFF4040), 0);
-            if (s_stealth_lbl)
-                lv_obj_set_style_text_color(s_stealth_lbl, lv_color_hex(0xFF6060), 0);
-        }
-    } else {
-        uint8_t brt = (uint8_t)(20 + ((uint32_t)s_stealth_brt * 235u) / 100u);
-        display::setBrightness(brt);
-        if (s_stealth_muted && audio_is_muted()) audio_mute_toggle();
-        s_stealth_muted = false;
-        if (s_stealth_lbl) lv_label_set_text(s_stealth_lbl, "STEALTH MODE");
-        if (s_stealth_btn) {
-            lv_obj_set_style_bg_color(s_stealth_btn, lv_color_hex(0x130B0B), 0);
-            lv_obj_set_style_border_color(s_stealth_btn, lv_color_hex(0x2A1818), 0);
-            if (s_stealth_lbl)
-                lv_obj_set_style_text_color(s_stealth_lbl, lv_color_hex(0x884444), 0);
-        }
-    }
 }
 
 // ── Debug toggle ──────────────────────────────────────────────────────────────
@@ -419,31 +380,10 @@ void qs_begin() {
 
     make_sep(s_panel);
 
-    // STEALTH MODE button
-    s_stealth_btn = lv_obj_create(s_panel);
-    lv_obj_remove_style_all(s_stealth_btn);
-    lv_obj_set_size(s_stealth_btn, LV_PCT(100), 46);
-    lv_obj_set_style_bg_color(s_stealth_btn, lv_color_hex(0x130B0B), 0);
-    lv_obj_set_style_bg_opa(s_stealth_btn, LV_OPA_COVER, 0);
-    lv_obj_set_style_border_color(s_stealth_btn, lv_color_hex(0x2A1818), 0);
-    lv_obj_set_style_border_width(s_stealth_btn, 1, 0);
-    lv_obj_set_style_radius(s_stealth_btn, 10, 0);
-    lv_obj_add_flag(s_stealth_btn, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_clear_flag(s_stealth_btn, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_set_scroll_dir(s_stealth_btn, LV_DIR_NONE);
-    lv_obj_add_event_cb(s_stealth_btn, on_stealth_clicked, LV_EVENT_CLICKED, nullptr);
-
-    s_stealth_lbl = lv_label_create(s_stealth_btn);
-    lv_label_set_text(s_stealth_lbl, "STEALTH MODE");
-    lv_obj_set_style_text_font(s_stealth_lbl, &lv_font_montserrat_16, 0);
-    lv_obj_set_style_text_color(s_stealth_lbl, lv_color_hex(0x884444), 0);
-    lv_obj_set_style_text_letter_space(s_stealth_lbl, 1, 0);
-    lv_obj_center(s_stealth_lbl);
-
     // DEBUG toggle button
     lv_obj_t *dbg_btn = lv_obj_create(s_panel);
     lv_obj_remove_style_all(dbg_btn);
-    lv_obj_set_size(dbg_btn, LV_PCT(100), 38);
+    lv_obj_set_size(dbg_btn, LV_PCT(100), 46);
     lv_obj_set_style_bg_color(dbg_btn, lv_color_hex(g_debug ? 0x0a1a0a : 0x0a0a0a), 0);
     lv_obj_set_style_bg_opa(dbg_btn, LV_OPA_COVER, 0);
     lv_obj_set_style_border_color(dbg_btn, lv_color_hex(g_debug ? 0x44dd44 : 0x222233), 0);
@@ -456,7 +396,7 @@ void qs_begin() {
 
     lv_obj_t *dbg_lbl = lv_label_create(dbg_btn);
     lv_label_set_text(dbg_lbl, g_debug ? "DBG  ON" : "DBG OFF");
-    lv_obj_set_style_text_font(dbg_lbl, &lv_font_montserrat_14, 0);
+    lv_obj_set_style_text_font(dbg_lbl, &lv_font_montserrat_16, 0);
     lv_obj_set_style_text_color(dbg_lbl, lv_color_hex(g_debug ? 0x44dd44 : 0x333344), 0);
     lv_obj_set_style_text_letter_space(dbg_lbl, 1, 0);
     lv_obj_center(dbg_lbl);
