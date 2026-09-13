@@ -153,6 +153,12 @@ void setup() {
 
     pinMode(PIN_BOOT_BUTTON, INPUT_PULLUP);
 
+    // Init storage FIRST so SD card power surge happens before display init.
+    // SD.begin() can cause a 3.3V rail dip that corrupts the CO5300 if the
+    // display is already running.
+    storage_begin();
+    delay(50); // let rail stabilise before display init
+
     if (!display::begin()) {
         Serial.println("[main] display init FAILED — halting");
         while (true) delay(1000);
@@ -178,9 +184,12 @@ void setup() {
     auto bat = axp_read();
     ui_chrome_update_battery(bat.pct, bat.charging);
 
-    // Storage — SD card preferred, LittleFS fallback
-    storage_begin();
     ui_chrome_update_storage(storage_has_sd());
+    ui_chrome_set_format_sd_cb([]() {
+        if (storage_format_sd()) {
+            ui_chrome_update_storage(true);
+        }
+    });
 
     // Audio init last — WiFi/BLE clocks must be stable before I2S starts
     audio_init();

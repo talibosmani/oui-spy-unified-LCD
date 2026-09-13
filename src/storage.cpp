@@ -38,6 +38,21 @@ fs::FS& storage_fs() {
 
 bool storage_has_sd() { return s_has_sd; }
 
+bool storage_format_sd() {
+    if (s_has_sd) SD.end(); // unmount if already mounted
+    SPI.begin(PIN_SD_SCK, PIN_SD_MISO, PIN_SD_MOSI, PIN_SD_CS);
+    // format_if_empty=true tells the library to write a fresh FAT32
+    // filesystem if the existing one can't be read.
+    if (SD.begin(PIN_SD_CS, SPI, 4000000, "/sd", 5, true)) {
+        s_has_sd = true;
+        Serial.printf("[storage] SD formatted+mounted  size=%llu MB\n",
+                      SD.cardSize() / (1024ULL * 1024ULL));
+        return true;
+    }
+    Serial.println("[storage] format failed — card not present or wiring issue");
+    return false;
+}
+
 uint64_t storage_total_bytes() {
     return s_has_sd ? SD.totalBytes() : (uint64_t)LittleFS.totalBytes();
 }

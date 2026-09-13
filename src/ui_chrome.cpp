@@ -7,11 +7,13 @@
 #include <lvgl.h>
 #include <stdio.h>
 
-static lv_obj_t    *s_bat_sym    = nullptr;
-static lv_obj_t    *s_bat_label  = nullptr;
-static lv_obj_t    *s_store_label= nullptr;
-static lv_obj_t    *s_exit_btn   = nullptr;
-static ChromeExitCb s_exit_cb    = nullptr;
+static lv_obj_t      *s_bat_sym      = nullptr;
+static lv_obj_t      *s_bat_label    = nullptr;
+static lv_obj_t      *s_store_label  = nullptr;
+static lv_obj_t      *s_exit_btn     = nullptr;
+static ChromeExitCb   s_exit_cb      = nullptr;
+static StorageFormatCb s_format_cb   = nullptr;
+static bool           s_has_sd       = false;
 
 static const char *bat_symbol(uint8_t pct) {
     if (pct > 75) return LV_SYMBOL_BATTERY_FULL;
@@ -24,6 +26,30 @@ static const char *bat_symbol(uint8_t pct) {
 static void on_exit_clicked(lv_event_t *e) {
     (void)e;
     if (s_exit_cb) s_exit_cb();
+}
+
+static void on_format_dialog_btn(lv_event_t *e) {
+    lv_obj_t *btn = (lv_obj_t *)lv_event_get_target(e);
+    lv_obj_t *mbox = lv_obj_get_parent(lv_obj_get_parent(btn));
+    uint16_t idx = lv_msgbox_get_active_btn(mbox);
+    lv_msgbox_close(mbox);
+    if (idx == 0 && s_format_cb) s_format_cb(); // "Format" button
+}
+
+static void on_storage_label_clicked(lv_event_t *e) {
+    (void)e;
+    if (s_has_sd) return; // already on SD, nothing to do
+
+    static const char *btns[] = {"Format SD", "Cancel", ""};
+    lv_obj_t *mbox = lv_msgbox_create(lv_layer_top(), "SD Card",
+        "No SD card detected.\n\n"
+        "Make sure it is FAT32 formatted and wired correctly:\n"
+        "CS=17  MOSI=18  CLK=16  MISO=13\n\n"
+        "Tap 'Format SD' to format a detected card as FAT32.",
+        btns, false);
+    lv_obj_set_width(mbox, 320);
+    lv_obj_center(mbox);
+    lv_obj_add_event_cb(lv_msgbox_get_btns(mbox), on_format_dialog_btn, LV_EVENT_CLICKED, nullptr);
 }
 
 void ui_chrome_begin() {
@@ -66,11 +92,14 @@ void ui_chrome_begin() {
     lv_obj_set_style_text_font(div, &lv_font_montserrat_14, 0);
     lv_obj_set_style_text_color(div, lv_color_hex(0x444444), 0);
 
-    // Storage indicator
+    // Storage indicator — tappable to show format dialog
     s_store_label = lv_label_create(bar);
     lv_label_set_text(s_store_label, "LFS");
     lv_obj_set_style_text_font(s_store_label, &lv_font_montserrat_14, 0);
     lv_obj_set_style_text_color(s_store_label, lv_color_hex(0x888888), 0);
+    lv_obj_add_flag(s_store_label, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_set_ext_click_area(s_store_label, 12);
+    lv_obj_add_event_cb(s_store_label, on_storage_label_clicked, LV_EVENT_CLICKED, nullptr);
 
     // ---- Exit button (bottom-center, hidden by default) ----
     // 64×64 circle; bottom margin 10px → top at SCREEN_H-74=392.
@@ -119,11 +148,14 @@ void ui_chrome_set_exit_cb(ChromeExitCb cb) { s_exit_cb = cb; }
 
 void ui_chrome_update_storage(bool has_sd) {
     if (!s_store_label) return;
+    s_has_sd = has_sd;
     if (has_sd) {
         lv_label_set_text(s_store_label, "SD");
         lv_obj_set_style_text_color(s_store_label, lv_color_hex(0x44dd88), 0);
     } else {
         lv_label_set_text(s_store_label, "LFS");
-        lv_obj_set_style_text_color(s_store_label, lv_color_hex(0x888888), 0);
+        lv_obj_set_style_text_color(s_store_label, lv_color_hex(0xffaa00), 0); // amber = actionable
     }
 }
+
+void ui_chrome_set_format_sd_cb(StorageFormatCb cb) { s_format_cb = cb; }
