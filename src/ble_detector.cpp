@@ -27,6 +27,7 @@ struct VendorSig {
     uint8_t     svc_count;
     const char *names[3];   // device name substrings (case-insensitive)
     uint8_t     name_count;
+    bool        cid_and_svc; // require BOTH cid and svc (name still matches alone)
 };
 
 static const VendorSig VENDORS[] = {
@@ -90,6 +91,7 @@ static const VendorSig VENDORS[] = {
         {0x0D53}, 1,
         {0xFD5F}, 1,
         {"Ray-Ban","Wayfarer","Oakley Meta"}, 3,
+        true,
     },
 };
 static constexpr int VENDOR_COUNT = sizeof(VENDORS) / sizeof(VENDORS[0]);
@@ -109,6 +111,10 @@ public:
         if (!s_queue) return;
 
         const NimBLEAddress addr = adv->getAddress();
+        // Only public addresses carry a vendor OUI. Random (private) addresses
+        // are what phones rotate every ~15 min; matching their first 3 bytes
+        // against the OUI table is pure chance.
+        const bool is_public = (addr.getType() == BLE_ADDR_PUBLIC);
         const uint8_t *raw = addr.getNative(); // 6 bytes, reversed (LSB first)
         // OUI = raw[5], raw[4], raw[3] (the first 3 bytes of the MAC string)
         const uint8_t oui[3] = { raw[5], raw[4], raw[3] };
@@ -124,26 +130,35 @@ public:
             const VendorSig &sig = VENDORS[v];
             const char *method = nullptr;
 
-            // 1. OUI prefix match
-            for (int o = 0; o < sig.oui_count && !method; ++o)
+            // 1. OUI prefix match (public addresses only)
+            for (int o = 0; is_public && o < sig.oui_count && !method; ++o)
                 if (oui[0]==sig.ouis[o][0] && oui[1]==sig.ouis[o][1] && oui[2]==sig.ouis[o][2])
                     method = "oui";
 
             // 2. Company ID match
-            for (int c = 0; c < sig.cid_count && !method; ++c)
-                if (mfr_cid == sig.cids[c])
-                    method = "cid";
+            bool cid_hit = false;
+            for (int c = 0; c < sig.cid_count && !cid_hit; ++c)
+                if (mfr_cid == sig.cids[c]) cid_hit = true;
 
             // 3. Service UUID match (16-bit UUIDs only for now)
-            if (!method && sig.svc_count > 0 && adv->haveServiceUUID()) {
-                for (int u = 0; u < (int)adv->getServiceUUIDCount() && !method; ++u) {
+            bool svc_hit = false;
+            if (sig.svc_count > 0 && adv->haveServiceUUID()) {
+                for (int u = 0; u < (int)adv->getServiceUUIDCount() && !svc_hit; ++u) {
                     const NimBLEUUID svc = adv->getServiceUUID(u);
                     if (svc.bitSize() == 16) {
                         const uint16_t svc16 = (uint16_t)svc.getNative()->u16.value;
-                        for (int s = 0; s < sig.svc_count && !method; ++s)
-                            if (svc16 == sig.svcs[s])
-                                method = "svc_uuid";
+                        for (int s = 0; s < sig.svc_count && !svc_hit; ++s)
+                            if (svc16 == sig.svcs[s]) svc_hit = true;
                     }
+                }
+            }
+            if (!method) {
+                if (sig.cid_and_svc) {
+                    if (cid_hit && svc_hit) method = "cid+svc";
+                } else if (cid_hit) {
+                    method = "cid";
+                } else if (svc_hit) {
+                    method = "svc_uuid";
                 }
             }
 

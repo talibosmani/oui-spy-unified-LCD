@@ -5,6 +5,8 @@
 #include <lvgl.h>
 #include <stdio.h>
 #include <string.h>
+#include <set>
+#include <string>
 
 static lv_obj_t  *s_screen      = nullptr;
 static lv_obj_t  *s_list        = nullptr;
@@ -12,7 +14,11 @@ static lv_obj_t  *s_dot         = nullptr;
 static lv_obj_t  *s_count_lbl   = nullptr;
 static lv_anim_t  s_dot_anim;
 static DetBackCb  s_on_back      = nullptr;
-static int        s_count        = 0;
+static int        s_count        = 0;   // rows added (events)
+static int        s_hits         = 0;   // matched-vendor events (non-debug rows)
+static std::set<std::string> s_unique_hits;   // distinct matched MACs
+static std::set<std::string> s_unique_scan;   // distinct debug-scan MACs
+#define UNIQUE_CAP 2000                        // stop tracking beyond this
 
 // ---- helpers ----------------------------------------------------------------
 
@@ -179,7 +185,7 @@ void ui_detector_create(DetBackCb on_back) {
     lv_obj_set_flex_align(footer, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
 
     s_count_lbl = lv_label_create(footer);
-    lv_label_set_text(s_count_lbl, "0 detections");
+    lv_label_set_text(s_count_lbl, "0 devices  \xc2\xb7  0 alerts");
     lv_obj_set_style_text_font(s_count_lbl, &lv_font_montserrat_16, 0);
     lv_obj_set_style_text_color(s_count_lbl, lv_color_hex(0x444444), 0);
 
@@ -193,7 +199,9 @@ void ui_detector_destroy() {
         s_screen = nullptr;
     }
     s_list = s_dot = s_count_lbl = nullptr;
-    s_count = 0;
+    s_count = s_hits = 0;
+    s_unique_hits.clear();
+    s_unique_scan.clear();
 }
 
 void ui_detector_add(const Detection &d) {
@@ -279,9 +287,24 @@ void ui_detector_add(const Detection &d) {
     lv_obj_set_style_text_font(rssi_lbl, &lv_font_montserrat_16, 0);
     lv_obj_set_style_text_color(rssi_lbl, rssi_color(d.rssi), 0);
 
-    // Update count in footer
-    char buf[24];
-    snprintf(buf, sizeof(buf), "%d detection%s", s_count, s_count == 1 ? "" : "s");
+    // Footer: distinct devices vs raw events, so re-alerts of the same
+    // device (every 8 s) and debug re-listings (every 3 s) don't read as
+    // hundreds of "detections".
+    const bool is_scan = (strcmp(d.method, "SCAN") == 0);
+    std::set<std::string> &uniq = is_scan ? s_unique_scan : s_unique_hits;
+    if (uniq.size() < UNIQUE_CAP) uniq.insert(d.mac);
+    if (!is_scan) s_hits++;
+
+    char buf[64];
+    if (s_unique_scan.empty()) {
+        snprintf(buf, sizeof(buf), "%u device%s  \xc2\xb7  %d alert%s",
+                 (unsigned)s_unique_hits.size(), s_unique_hits.size() == 1 ? "" : "s",
+                 s_hits, s_hits == 1 ? "" : "s");
+    } else {
+        snprintf(buf, sizeof(buf), "%u hit%s  \xc2\xb7  %u scanned  \xc2\xb7  %d ev",
+                 (unsigned)s_unique_hits.size(), s_unique_hits.size() == 1 ? "" : "s",
+                 (unsigned)s_unique_scan.size(), s_count);
+    }
     lv_label_set_text(s_count_lbl, buf);
 }
 
