@@ -6,3 +6,4 @@
 // Call flock_log_update() each time a FLOCK frame is received — it lazily
 // loads the existing log on first call, then upserts and saves.
 void flock_log_update(const FlockDetection &d);
+void flock_log_tick();

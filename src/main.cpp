@@ -26,6 +26,8 @@
 #include "ble_detect_log.h"
 #include "ble_sniff_log.h"
 #include "skyspy_log.h"
+#include "flock_log.h"
+#include "storage.h"
 #include "ui_selftest.h"
 #include <NimBLEDevice.h>
 
@@ -176,6 +178,9 @@ void setup() {
     auto bat = axp_read();
     ui_chrome_update_battery(bat.pct, bat.charging);
 
+    // Storage — SD card preferred, LittleFS fallback
+    storage_begin();
+
     // Audio init last — WiFi/BLE clocks must be stable before I2S starts
     audio_init();
 
@@ -220,6 +225,7 @@ void loop() {
             ++n;
         }
         ui_flockyou_tick();
+        flock_log_tick();
     }
 
     if (s_state == State::BLESniff) {
@@ -230,6 +236,7 @@ void loop() {
             ui_blesniff_add(se);
             ++n;
         }
+        ble_sniff_log_tick();
     }
 
     if (s_state == State::Foxhunter) {
@@ -252,6 +259,7 @@ void loop() {
             ui_skyspy_add(de);
             ++n;
         }
+        skyspy_log_tick();
     }
 
     if (s_state == State::PCAP) {

@@ -1,5 +1,5 @@
 #include "ble_sniff_log.h"
-#include <LittleFS.h>
+#include "storage.h"
 #include <ArduinoJson.h>
 #include <Arduino.h>
 #include <string.h>
@@ -17,12 +17,35 @@ struct SniffLogEntry {
 };
 
 static SniffLogEntry s_table[MAX_ENTRIES];
-static int           s_count  = 0;
-static bool          s_inited = false;
+static int           s_count     = 0;
+static bool          s_inited    = false;
+static bool          s_dirty     = false;
+static uint32_t      s_last_save = 0;
+static const uint32_t SAVE_INTERVAL_MS = 60000;
+
+static void save() {
+    File f = storage_fs().open(LOG_PATH, "w");
+    if (!f) { Serial.println("[ble_sniff_log] write failed"); return; }
+    JsonDocument doc;
+    doc["note"] = "first_seen/last_seen = uptime seconds";
+    JsonArray arr = doc["devices"].to<JsonArray>();
+    for (int i = 0; i < s_count; i++) {
+        JsonObject o = arr.add<JsonObject>();
+        o["mac"]        = s_table[i].mac;
+        o["name"]       = s_table[i].name;
+        o["first_seen"] = s_table[i].first_seen;
+        o["last_seen"]  = s_table[i].last_seen;
+        o["times_seen"] = s_table[i].times_seen;
+        o["rssi_peak"]  = s_table[i].rssi_peak;
+    }
+    serializeJson(doc, f);
+    f.close();
+    s_last_save = millis();
+    s_dirty     = false;
+}
 
 static void load() {
-    if (!LittleFS.begin(false)) return;
-    File f = LittleFS.open(LOG_PATH, "r");
+    File f = storage_fs().open(LOG_PATH, "r");
     if (!f) return;
     JsonDocument doc;
     DeserializationError err = deserializeJson(doc, f);
@@ -42,25 +65,6 @@ static void load() {
     Serial.printf("[ble_sniff_log] loaded %d entries\n", s_count);
 }
 
-static void save() {
-    File f = LittleFS.open(LOG_PATH, "w");
-    if (!f) { Serial.println("[ble_sniff_log] write failed"); return; }
-    JsonDocument doc;
-    doc["note"] = "first_seen/last_seen = uptime seconds";
-    JsonArray arr = doc["devices"].to<JsonArray>();
-    for (int i = 0; i < s_count; i++) {
-        JsonObject o = arr.add<JsonObject>();
-        o["mac"]        = s_table[i].mac;
-        o["name"]       = s_table[i].name;
-        o["first_seen"] = s_table[i].first_seen;
-        o["last_seen"]  = s_table[i].last_seen;
-        o["times_seen"] = s_table[i].times_seen;
-        o["rssi_peak"]  = s_table[i].rssi_peak;
-    }
-    serializeJsonPretty(doc, f);
-    f.close();
-}
-
 void ble_sniff_log_update(const SniffEntry &se) {
     if (!s_inited) { load(); s_inited = true; }
     const uint32_t now = millis() / 1000;
@@ -70,10 +74,9 @@ void ble_sniff_log_update(const SniffEntry &se) {
             s_table[i].last_seen = now;
             s_table[i].times_seen++;
             if (se.rssi > s_table[i].rssi_peak) s_table[i].rssi_peak = se.rssi;
-            // Update name if we now have one
             if (se.name[0] != '\0' && s_table[i].name[0] == '\0')
                 strncpy(s_table[i].name, se.name, 17);
-            save();
+            s_dirty = true;
             return;
         }
     }
@@ -95,4 +98,10 @@ void ble_sniff_log_update(const SniffEntry &se) {
     s_table[slot].rssi_peak  = se.rssi;
     save();
     Serial.printf("[ble_sniff_log] new %s total=%d\n", se.mac, s_count);
+}
+
+void ble_sniff_log_tick() {
+    if (s_dirty && (millis() - s_last_save >= SAVE_INTERVAL_MS)) {
+        save();
+    }
 }

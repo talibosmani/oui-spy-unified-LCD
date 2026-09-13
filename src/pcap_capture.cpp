@@ -2,10 +2,10 @@
 // Packet data captured in IRAM callback → FreeRTOS queue → drained in pcap_tick().
 // Channel hops 1→6→11→2→7→12→3→8→13→4→9→5→10 every 400ms.
 #include "pcap_capture.h"
+#include "storage.h"
 #include <Arduino.h>
 #include <WiFi.h>
 #include <esp_wifi.h>
-#include <LittleFS.h>
 #include <string.h>
 #include <stdio.h>
 #include <freertos/FreeRTOS.h>
@@ -75,7 +75,7 @@ static int next_file_index() {
     char path[24];
     while (idx < 1000) {
         snprintf(path, sizeof(path), "/pcap_%03d.pcap", idx);
-        if (!LittleFS.exists(path)) break;
+        if (!storage_fs().exists(path)) break;
         idx++;
     }
     return idx;
@@ -100,23 +100,19 @@ void pcap_start() {
     s_ch_idx   = 0;
     s_last_hop = 0;
 
-    // Mount LittleFS
-    if (!LittleFS.begin(true)) {
-        Serial.println("[pcap] LittleFS mount failed");
-        s_fs_ok = false;
+    // storage_begin() called in setup() — just open the capture file
+    s_fs_ok = true;
+    int idx = next_file_index();
+    snprintf(s_stats.filename, sizeof(s_stats.filename), "/pcap_%03d.pcap", idx);
+    s_file = storage_fs().open(s_stats.filename, "w");
+    if (s_file) {
+        write_global_hdr();
+        s_stats.file_bytes = sizeof(PcapGlobalHdr);
+        Serial.printf("[pcap] capturing to %s  storage=%s\n",
+                      s_stats.filename, storage_has_sd() ? "SD" : "LittleFS");
     } else {
-        s_fs_ok = true;
-        // Open new capture file
-        int idx = next_file_index();
-        snprintf(s_stats.filename, sizeof(s_stats.filename), "/pcap_%03d.pcap", idx);
-        s_file = LittleFS.open(s_stats.filename, "w");
-        if (s_file) {
-            write_global_hdr();
-            s_stats.file_bytes = sizeof(PcapGlobalHdr);
-            Serial.printf("[pcap] capturing to %s\n", s_stats.filename);
-        } else {
-            Serial.println("[pcap] failed to open capture file");
-        }
+        Serial.println("[pcap] failed to open capture file");
+        s_fs_ok = false;
     }
 
     if (!s_queue)
@@ -183,12 +179,12 @@ void pcap_get_stats(PcapStats *out) {
 
 uint32_t pcap_fs_used() {
     if (!s_fs_ok) return 0;
-    return (uint32_t)LittleFS.usedBytes();
+    return (uint32_t)storage_used_bytes();
 }
 
 uint32_t pcap_fs_total() {
     if (!s_fs_ok) return 1;
-    return (uint32_t)LittleFS.totalBytes();
+    return (uint32_t)storage_total_bytes();
 }
 
 bool pcap_is_running() { return s_running; }
@@ -199,8 +195,8 @@ int pcap_delete_all() {
     char path[24];
     for (int i = 1; i < 1000; i++) {
         snprintf(path, sizeof(path), "/pcap_%03d.pcap", i);
-        if (!LittleFS.exists(path)) break;
-        LittleFS.remove(path);
+        if (!storage_fs().exists(path)) break;
+        storage_fs().remove(path);
         n++;
     }
     return n;

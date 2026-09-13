@@ -1,5 +1,5 @@
 #include "ble_detect_log.h"
-#include <LittleFS.h>
+#include "storage.h"
 #include <ArduinoJson.h>
 #include <Arduino.h>
 #include <string.h>
@@ -22,33 +22,10 @@ static int         s_count     = 0;
 static bool        s_inited    = false;
 static bool        s_dirty     = false;
 static uint32_t    s_last_save = 0;
-static const uint32_t SAVE_INTERVAL_MS = 60000; // flush re-seen updates at most once/min
-
-static void load() {
-    if (!LittleFS.begin(false)) return;
-    File f = LittleFS.open(LOG_PATH, "r");
-    if (!f) return;
-    JsonDocument doc;
-    DeserializationError err = deserializeJson(doc, f);
-    f.close();
-    if (err) return;
-    JsonArray arr = doc["devices"].as<JsonArray>();
-    for (JsonObject o : arr) {
-        if (s_count >= MAX_ENTRIES) break;
-        auto &e = s_table[s_count++];
-        strncpy(e.mac,    o["mac"]    | "", 17); e.mac[17]    = '\0';
-        strncpy(e.vendor, o["vendor"] | "", 11); e.vendor[11] = '\0';
-        strncpy(e.method, o["method"] | "", 11); e.method[11] = '\0';
-        e.first_seen = o["first_seen"] | 0u;
-        e.last_seen  = o["last_seen"]  | 0u;
-        e.times_seen = o["times_seen"] | 1u;
-        e.rssi_peak  = (int8_t)(o["rssi_peak"] | -127);
-    }
-    Serial.printf("[ble_detect_log] loaded %d entries\n", s_count);
-}
+static const uint32_t SAVE_INTERVAL_MS = 60000;
 
 static void save() {
-    File f = LittleFS.open(LOG_PATH, "w");
+    File f = storage_fs().open(LOG_PATH, "w");
     if (!f) { Serial.println("[ble_detect_log] write failed"); return; }
     JsonDocument doc;
     doc["note"] = "first_seen/last_seen = uptime seconds";
@@ -69,6 +46,28 @@ static void save() {
     s_dirty     = false;
 }
 
+static void load() {
+    File f = storage_fs().open(LOG_PATH, "r");
+    if (!f) return;
+    JsonDocument doc;
+    DeserializationError err = deserializeJson(doc, f);
+    f.close();
+    if (err) return;
+    JsonArray arr = doc["devices"].as<JsonArray>();
+    for (JsonObject o : arr) {
+        if (s_count >= MAX_ENTRIES) break;
+        auto &e = s_table[s_count++];
+        strncpy(e.mac,    o["mac"]    | "", 17); e.mac[17]    = '\0';
+        strncpy(e.vendor, o["vendor"] | "", 11); e.vendor[11] = '\0';
+        strncpy(e.method, o["method"] | "", 11); e.method[11] = '\0';
+        e.first_seen = o["first_seen"] | 0u;
+        e.last_seen  = o["last_seen"]  | 0u;
+        e.times_seen = o["times_seen"] | 1u;
+        e.rssi_peak  = (int8_t)(o["rssi_peak"] | -127);
+    }
+    Serial.printf("[ble_detect_log] loaded %d entries\n", s_count);
+}
+
 void ble_detect_log_update(const Detection &d) {
     if (!s_inited) { load(); s_inited = true; }
     const uint32_t now = millis() / 1000;
@@ -78,7 +77,7 @@ void ble_detect_log_update(const Detection &d) {
             s_table[i].last_seen = now;
             s_table[i].times_seen++;
             if (d.rssi > s_table[i].rssi_peak) s_table[i].rssi_peak = d.rssi;
-            s_dirty = true; // flush via tick(), not here — avoids flash write per detection
+            s_dirty = true;
             return;
         }
     }
@@ -99,7 +98,7 @@ void ble_detect_log_update(const Detection &d) {
     s_table[slot].last_seen  = now;
     s_table[slot].times_seen = 1;
     s_table[slot].rssi_peak  = d.rssi;
-    save(); // new entry — persist immediately so it survives a power-off
+    save();
     Serial.printf("[ble_detect_log] new %s (%s) total=%d\n", d.mac, d.vendor, s_count);
 }
 
