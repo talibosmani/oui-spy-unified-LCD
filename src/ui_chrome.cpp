@@ -7,10 +7,11 @@
 #include <lvgl.h>
 #include <stdio.h>
 
-static lv_obj_t    *s_bat_sym   = nullptr;
-static lv_obj_t    *s_bat_label = nullptr;
-static lv_obj_t    *s_exit_btn  = nullptr;
-static ChromeExitCb s_exit_cb   = nullptr;
+static lv_obj_t    *s_bat_sym    = nullptr;
+static lv_obj_t    *s_bat_label  = nullptr;
+static lv_obj_t    *s_store_label= nullptr;
+static lv_obj_t    *s_exit_btn   = nullptr;
+static ChromeExitCb s_exit_cb    = nullptr;
 
 static const char *bat_symbol(uint8_t pct) {
     if (pct > 75) return LV_SYMBOL_BATTERY_FULL;
@@ -35,8 +36,8 @@ void ui_chrome_begin() {
     // A 170px-wide pill centred on the screen is safe at all those y values.
     lv_obj_t *bar = lv_obj_create(layer);
     lv_obj_remove_style_all(bar);
-    lv_obj_set_pos(bar, (SCREEN_W - 170) / 2, 5);
-    lv_obj_set_size(bar, 170, 26);
+    lv_obj_set_pos(bar, (SCREEN_W - 210) / 2, 5);
+    lv_obj_set_size(bar, 210, 26);
     lv_obj_set_style_bg_color(bar, lv_color_hex(0x000000), 0);
     lv_obj_set_style_bg_opa(bar, LV_OPA_70, 0);
     lv_obj_set_style_radius(bar, 13, 0);
@@ -58,6 +59,18 @@ void ui_chrome_begin() {
     lv_label_set_text(s_bat_label, "---%");
     lv_obj_set_style_text_font(s_bat_label, &lv_font_montserrat_14, 0);
     lv_obj_set_style_text_color(s_bat_label, lv_color_hex(0x44dd88), 0);
+
+    // Divider
+    lv_obj_t *div = lv_label_create(bar);
+    lv_label_set_text(div, "|");
+    lv_obj_set_style_text_font(div, &lv_font_montserrat_14, 0);
+    lv_obj_set_style_text_color(div, lv_color_hex(0x444444), 0);
+
+    // Storage indicator
+    s_store_label = lv_label_create(bar);
+    lv_label_set_text(s_store_label, "LFS");
+    lv_obj_set_style_text_font(s_store_label, &lv_font_montserrat_14, 0);
+    lv_obj_set_style_text_color(s_store_label, lv_color_hex(0x888888), 0);
 
     // ---- Exit button (bottom-center, hidden by default) ----
     // 64×64 circle; bottom margin 10px → top at SCREEN_H-74=392.
@@ -103,3 +116,14 @@ void ui_chrome_show_exit(bool show) {
 }
 
 void ui_chrome_set_exit_cb(ChromeExitCb cb) { s_exit_cb = cb; }
+
+void ui_chrome_update_storage(bool has_sd) {
+    if (!s_store_label) return;
+    if (has_sd) {
+        lv_label_set_text(s_store_label, "SD");
+        lv_obj_set_style_text_color(s_store_label, lv_color_hex(0x44dd88), 0);
+    } else {
+        lv_label_set_text(s_store_label, "LFS");
+        lv_obj_set_style_text_color(s_store_label, lv_color_hex(0x888888), 0);
+    }
+}

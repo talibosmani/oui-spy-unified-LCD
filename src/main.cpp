@@ -180,6 +180,7 @@ void setup() {
 
     // Storage — SD card preferred, LittleFS fallback
     storage_begin();
+    ui_chrome_update_storage(storage_has_sd());
 
     // Audio init last — WiFi/BLE clocks must be stable before I2S starts
     audio_init();

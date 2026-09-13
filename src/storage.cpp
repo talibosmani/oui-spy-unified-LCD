@@ -13,7 +13,7 @@ static bool s_has_sd = false;
 bool storage_begin() {
     // --- Try SD card first ---
     SPI.begin(PIN_SD_SCK, PIN_SD_MISO, PIN_SD_MOSI, PIN_SD_CS);
-    if (SD.begin(PIN_SD_CS, SPI, 8000000)) {
+    if (SD.begin(PIN_SD_CS, SPI, 4000000)) {
         s_has_sd = true;
         Serial.printf("[storage] SD mounted  size=%llu MB  type=%d\n",
                       SD.cardSize() / (1024ULL * 1024ULL), (int)SD.cardType());
