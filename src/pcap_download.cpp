@@ -8,7 +8,7 @@
 #include <Arduino.h>
 #include <WiFi.h>
 #include <WebServer.h>
-#include <LittleFS.h>
+#include "storage.h"
 #include <stdio.h>
 #include <string.h>
 
@@ -35,7 +35,7 @@ static void send_index() {
     // PCAP captures
     String files_html = "";
     int file_count = 0;
-    File root = LittleFS.open("/");
+    File root = storage_fs().open("/");
     if (root && root.isDirectory()) {
         File f = root.openNextFile();
         while (f) {
@@ -59,8 +59,8 @@ static void send_index() {
     for (int i = 0; i < JSON_LABEL_COUNT; i++) {
         const auto &lbl = JSON_LABELS[i];
         String path = String("/") + lbl.filename;
-        if (!LittleFS.exists(path)) continue;
-        File fj = LittleFS.open(path, "r");
+        if (!storage_fs().exists(path)) continue;
+        File fj = storage_fs().open(path, "r");
         float kb = fj ? (float)fj.size() / 1024.0f : 0;
         if (fj) fj.close();
         char kb_buf[16]; snprintf(kb_buf, sizeof(kb_buf), "%.1f KB", kb);
@@ -72,8 +72,8 @@ static void send_index() {
                      "<a class='del' href='/del/" + lbl.filename + "' title='Clear log'>&#x1F5D1;</a></li></ul>";
     }
 
-    float used_mb  = bytes_to_mb(LittleFS.usedBytes());
-    float total_mb = bytes_to_mb(LittleFS.totalBytes());
+    float used_mb  = bytes_to_mb(storage_used_bytes());
+    float total_mb = bytes_to_mb(storage_total_bytes());
     char storage[48];
     snprintf(storage, sizeof(storage), "%.2f MB / %.2f MB used", used_mb, total_mb);
 
@@ -104,8 +104,8 @@ footer{margin-top:24px;color:#333;font-size:.8em;text-align:center}
     html += "</ul>";
     html += logs_html;
     html += "<div class='bar'><div class='fill' style='width:";
-    float pct = (LittleFS.totalBytes() > 0)
-                ? (100.0f * LittleFS.usedBytes() / LittleFS.totalBytes()) : 0;
+    float pct = (storage_total_bytes() > 0)
+                ? (100.0f * storage_used_bytes() / storage_total_bytes()) : 0;
     html += String((int)pct);
     html += "%'></div></div><p>" + String(storage) + "</p>";
     html += "<form method='get' action='/delall' style='margin-top:12px'>"
@@ -128,11 +128,11 @@ static void handle_dl() {
         return;
     }
     String path = "/" + name;
-    if (!LittleFS.exists(path)) {
+    if (!storage_fs().exists(path)) {
         s_server->send(404, "text/plain", "Not found");
         return;
     }
-    File f = LittleFS.open(path, "r");
+    File f = storage_fs().open(path, "r");
     if (!f) { s_server->send(500, "text/plain", "Open failed"); return; }
     s_server->sendHeader("Content-Disposition", "attachment; filename=" + name);
     const char *ct = name.endsWith(".json") ? "application/json" : "application/octet-stream";
@@ -141,7 +141,7 @@ static void handle_dl() {
 }
 
 static void handle_deljson() {
-    LittleFS.remove("/flock_log.json");
+    storage_fs().remove("/flock_log.json");
     s_server->sendHeader("Location", "/");
     s_server->send(302, "text/plain", "");
 }
@@ -149,7 +149,7 @@ static void handle_deljson() {
 static void handle_del() {
     String uri  = s_server->uri();
     String name = uri.substring(5); // strip "/del/"
-    if (name.length() > 0) LittleFS.remove("/" + name);
+    if (name.length() > 0) storage_fs().remove("/" + name);
     s_server->sendHeader("Location", "/");
     s_server->send(302, "text/plain", "");
 }
@@ -160,8 +160,8 @@ static void handle_delall() {
     char path[24];
     for (int i = 1; i <= 999; i++) {
         snprintf(path, sizeof(path), "/pcap_%03d.pcap", i);
-        if (!LittleFS.exists(path)) break;
-        LittleFS.remove(path);
+        if (!storage_fs().exists(path)) break;
+        storage_fs().remove(path);
     }
     s_server->sendHeader("Location", "/");
     s_server->send(302, "text/plain", "");
@@ -170,8 +170,6 @@ static void handle_delall() {
 // ── Public API ────────────────────────────────────────────────────────────────
 void pcap_download_start() {
     if (s_active) return;
-
-    if (!LittleFS.begin(false)) LittleFS.begin(true);
 
     WiFi.mode(WIFI_AP);
     WiFi.softAP(AP_SSID, AP_PASS);
