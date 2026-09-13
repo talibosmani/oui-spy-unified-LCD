@@ -30,9 +30,10 @@ static void on_exit_clicked(lv_event_t *e) {
 // ---- SD card boot dialog -------------------------------------------------------
 
 struct SdDialogCtx {
-    SdFormatCb  on_format;
-    lv_obj_t   *overlay;
-    lv_obj_t   *status;
+    SdPrimaryCb   on_primary;
+    SdSecondaryCb on_secondary;
+    lv_obj_t     *overlay;
+    lv_obj_t     *status;
 };
 static SdDialogCtx s_sd_ctx;
 
@@ -43,14 +44,18 @@ static void sd_dialog_close() {
 }
 
 static void sd_dialog_btn_cb(lv_event_t *e) {
-    bool do_format = (lv_event_get_user_data(e) != nullptr);
-    if (!do_format) { sd_dialog_close(); return; }
+    bool primary = (lv_event_get_user_data(e) != nullptr);
+    if (!primary) {
+        if (s_sd_ctx.on_secondary) s_sd_ctx.on_secondary();
+        sd_dialog_close();
+        return;
+    }
 
-    lv_label_set_text(s_sd_ctx.status, "Formatting...");
+    lv_label_set_text(s_sd_ctx.status, "Working...");
     lv_obj_set_style_text_color(s_sd_ctx.status, lv_color_hex(0xffffff), 0);
-    lv_refr_now(nullptr); // paint the "Formatting..." line before the blocking call
+    lv_refr_now(nullptr); // paint before the blocking call
 
-    const char *err = s_sd_ctx.on_format ? s_sd_ctx.on_format() : "no handler";
+    const char *err = s_sd_ctx.on_primary ? s_sd_ctx.on_primary() : nullptr;
     if (!err) { sd_dialog_close(); return; }
 
     lv_label_set_text(s_sd_ctx.status, err);
@@ -160,8 +165,11 @@ void ui_chrome_update_storage(bool has_sd) {
     }
 }
 
-void ui_chrome_show_sd_dialog(const char *probe_text, SdFormatCb on_format) {
-    s_sd_ctx.on_format = on_format;
+void ui_chrome_show_sd_dialog(const char *status_text, const char *hint_text,
+                              const char *primary,   SdPrimaryCb   on_primary,
+                              const char *secondary, SdSecondaryCb on_secondary) {
+    s_sd_ctx.on_primary   = on_primary;
+    s_sd_ctx.on_secondary = on_secondary;
 
     // Overlay on lv_layer_top() so it survives screen loads and sits above the menu
     lv_obj_t *ov = lv_obj_create(lv_layer_top());
@@ -175,56 +183,61 @@ void ui_chrome_show_sd_dialog(const char *probe_text, SdFormatCb on_format) {
     lv_obj_clear_flag(ov, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_add_flag(ov, LV_OBJ_FLAG_CLICKABLE); // absorb touches so the menu underneath is inert
 
-    // Title
     lv_obj_t *title = lv_label_create(ov);
-    lv_label_set_text(title, LV_SYMBOL_SD_CARD "  SD Card");
+    lv_label_set_text(title, LV_SYMBOL_SD_CARD "  Storage");
     lv_obj_set_style_text_font(title, &lv_font_montserrat_20, 0);
     lv_obj_set_style_text_color(title, lv_color_hex(0xffffff), 0);
     lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 70);
 
-    // Status line — probe result, later replaced by format outcome
     lv_obj_t *status = lv_label_create(ov);
     s_sd_ctx.status = status;
-    lv_label_set_text(status, probe_text);
+    lv_label_set_text(status, status_text);
     lv_label_set_long_mode(status, LV_LABEL_LONG_WRAP);
-    lv_obj_set_style_text_font(status, &lv_font_montserrat_14, 0);
+    lv_obj_set_style_text_font(status, &lv_font_montserrat_16, 0);
     lv_obj_set_style_text_color(status, lv_color_hex(0xffaa00), 0);
     lv_obj_set_style_text_align(status, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_set_width(status, 340);
-    lv_obj_align(status, LV_ALIGN_TOP_MID, 0, 110);
+    lv_obj_align(status, LV_ALIGN_TOP_MID, 0, 112);
 
-    // Wiring hint
-    lv_obj_t *hint = lv_label_create(ov);
-    lv_label_set_text(hint, "Insert a microSD card in the slot on the back.\nCards over 32 GB ship as exFAT - use Format below.");
-    lv_obj_set_style_text_font(hint, &lv_font_montserrat_14, 0);
-    lv_obj_set_style_text_color(hint, lv_color_hex(0x666666), 0);
-    lv_obj_set_style_text_align(hint, LV_TEXT_ALIGN_CENTER, 0);
-    lv_obj_set_width(hint, 360);
-    lv_obj_align(hint, LV_ALIGN_CENTER, 0, -10);
+    if (hint_text) {
+        lv_obj_t *hint = lv_label_create(ov);
+        lv_label_set_text(hint, hint_text);
+        lv_label_set_long_mode(hint, LV_LABEL_LONG_WRAP);
+        lv_obj_set_style_text_font(hint, &lv_font_montserrat_14, 0);
+        lv_obj_set_style_text_color(hint, lv_color_hex(0x777777), 0);
+        lv_obj_set_style_text_align(hint, LV_TEXT_ALIGN_CENTER, 0);
+        lv_obj_set_width(hint, 340);
+        lv_obj_align(hint, LV_ALIGN_CENTER, 0, -10);
+    }
 
-    // Format button (big, green)
-    lv_obj_t *fmt_btn = lv_btn_create(ov);
-    lv_obj_set_size(fmt_btn, 260, 56);
-    lv_obj_align(fmt_btn, LV_ALIGN_BOTTOM_MID, 0, -90);
-    lv_obj_set_style_bg_color(fmt_btn, lv_color_hex(0x1a6e3a), 0);
-    lv_obj_set_style_bg_color(fmt_btn, lv_color_hex(0x24a854), LV_STATE_PRESSED);
-    lv_obj_set_style_radius(fmt_btn, 12, 0);
-    lv_obj_add_event_cb(fmt_btn, sd_dialog_btn_cb, LV_EVENT_CLICKED, (void*)1); // non-null = format
-    lv_obj_t *fmt_lbl = lv_label_create(fmt_btn);
-    lv_label_set_text(fmt_lbl, LV_SYMBOL_SD_CARD "  Format SD Card as FAT32");
-    lv_obj_set_style_text_font(fmt_lbl, &lv_font_montserrat_16, 0);
-    lv_obj_center(fmt_lbl);
+    // Primary (green) — optional
+    int secondary_y = -28;
+    if (primary) {
+        lv_obj_t *btn = lv_btn_create(ov);
+        lv_obj_set_size(btn, 260, 56);
+        lv_obj_align(btn, LV_ALIGN_BOTTOM_MID, 0, -90);
+        lv_obj_set_style_bg_color(btn, lv_color_hex(0x1a6e3a), 0);
+        lv_obj_set_style_bg_color(btn, lv_color_hex(0x24a854), LV_STATE_PRESSED);
+        lv_obj_set_style_radius(btn, 12, 0);
+        lv_obj_add_event_cb(btn, sd_dialog_btn_cb, LV_EVENT_CLICKED, (void*)1);
+        lv_obj_t *lbl = lv_label_create(btn);
+        lv_label_set_text(lbl, primary);
+        lv_obj_set_style_text_font(lbl, &lv_font_montserrat_16, 0);
+        lv_obj_center(lbl);
+    } else {
+        secondary_y = -70; // centre the lone button in the safe zone
+    }
 
-    // Continue button (smaller, grey)
-    lv_obj_t *cont_btn = lv_btn_create(ov);
-    lv_obj_set_size(cont_btn, 260, 48);
-    lv_obj_align(cont_btn, LV_ALIGN_BOTTOM_MID, 0, -28);
-    lv_obj_set_style_bg_color(cont_btn, lv_color_hex(0x2a2a2a), 0);
-    lv_obj_set_style_bg_color(cont_btn, lv_color_hex(0x3a3a3a), LV_STATE_PRESSED);
-    lv_obj_set_style_radius(cont_btn, 12, 0);
-    lv_obj_add_event_cb(cont_btn, sd_dialog_btn_cb, LV_EVENT_CLICKED, nullptr); // null = continue
-    lv_obj_t *cont_lbl = lv_label_create(cont_btn);
-    lv_label_set_text(cont_lbl, "Continue with internal flash");
-    lv_obj_set_style_text_font(cont_lbl, &lv_font_montserrat_14, 0);
-    lv_obj_center(cont_lbl);
+    // Secondary (grey)
+    lv_obj_t *btn2 = lv_btn_create(ov);
+    lv_obj_set_size(btn2, 260, 48);
+    lv_obj_align(btn2, LV_ALIGN_BOTTOM_MID, 0, secondary_y);
+    lv_obj_set_style_bg_color(btn2, lv_color_hex(0x2a2a2a), 0);
+    lv_obj_set_style_bg_color(btn2, lv_color_hex(0x3a3a3a), LV_STATE_PRESSED);
+    lv_obj_set_style_radius(btn2, 12, 0);
+    lv_obj_add_event_cb(btn2, sd_dialog_btn_cb, LV_EVENT_CLICKED, nullptr);
+    lv_obj_t *lbl2 = lv_label_create(btn2);
+    lv_label_set_text(lbl2, secondary);
+    lv_obj_set_style_text_font(lbl2, &lv_font_montserrat_14, 0);
+    lv_obj_center(lbl2);
 }

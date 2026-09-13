@@ -10,9 +10,12 @@
 #include <SD_MMC.h>
 #include <LittleFS.h>
 #include <Arduino.h>
+#include <driver/sdmmc_host.h>
+#include <sdmmc_cmd.h>
 
-static bool s_has_sd = false;
-static char s_last_err[96] = "";
+static bool    s_has_sd    = false;
+static SdState s_state     = SdState::None;
+static char    s_last_err[96] = "";
 
 static bool sd_mount(bool format_if_failed) {
     SD_MMC.setPins(PIN_SD_CLK, PIN_SD_CMD, PIN_SD_D0);
@@ -26,16 +29,29 @@ static bool sd_mount(bool format_if_failed) {
     return true;
 }
 
-bool storage_begin() {
-    if (sd_mount(false)) {
-        s_has_sd = true;
-        Serial.printf("[storage] SD mounted  size=%llu MB  type=%d\n",
-                      SD_MMC.cardSize() / (1024ULL * 1024ULL), (int)SD_MMC.cardType());
-        return true;
-    }
-    Serial.println("[storage] SD not mounted — falling back to LittleFS");
+// Talk to the card at the SDMMC protocol level without touching FATFS.
+// True means a card answered CMD0/ACMD41 — i.e. it's physically present and
+// alive, regardless of what filesystem is on it.
+static bool sd_card_answers() {
+    sdmmc_host_t host = SDMMC_HOST_DEFAULT();
+    host.flags = SDMMC_HOST_FLAG_1BIT;
+    sdmmc_slot_config_t slot = SDMMC_SLOT_CONFIG_DEFAULT();
+    slot.width = 1;
+    slot.clk = (gpio_num_t)PIN_SD_CLK;
+    slot.cmd = (gpio_num_t)PIN_SD_CMD;
+    slot.d0  = (gpio_num_t)PIN_SD_D0;
 
-    s_has_sd = false;
+    if (sdmmc_host_init() != ESP_OK) return false;
+    bool ok = false;
+    if (sdmmc_host_init_slot(host.slot, &slot) == ESP_OK) {
+        sdmmc_card_t card;
+        ok = (sdmmc_card_init(&host, &card) == ESP_OK);
+    }
+    sdmmc_host_deinit();
+    return ok;
+}
+
+static bool littlefs_mount() {
     if (!LittleFS.begin(true)) {
         Serial.println("[storage] LittleFS mount failed");
         return false;
@@ -45,37 +61,51 @@ bool storage_begin() {
     return true;
 }
 
+bool storage_begin() {
+    if (sd_mount(false)) {
+        s_has_sd = true;
+        s_state  = SdState::Ready;
+        Serial.printf("[storage] SD mounted  size=%llu MB  type=%d\n",
+                      SD_MMC.cardSize() / (1024ULL * 1024ULL), (int)SD_MMC.cardType());
+        return true;
+    }
+
+    s_state = sd_card_answers() ? SdState::NotFat32 : SdState::None;
+    Serial.printf("[storage] SD not mounted (%s) — using LittleFS\n",
+                  s_state == SdState::NotFat32 ? "card present, bad filesystem" : "no card");
+    s_has_sd = false;
+    return littlefs_mount();
+}
+
 fs::FS& storage_fs() {
     return s_has_sd ? (fs::FS&)SD_MMC : (fs::FS&)LittleFS;
 }
 
-bool storage_has_sd() { return s_has_sd; }
-
-const char* storage_sd_probe() {
-    // SDMMC gives no cheap pre-mount probe; begin() failing already means the
-    // host got no valid response on CMD/D0. Distinguish "no card" from "bad FS"
-    // by attempting a mount and reading the card type.
-    if (SD_MMC.begin("/sdcard", true, false, SDMMC_FREQ_DEFAULT)) {
-        SD_MMC.end();
-        return "Card detected but not mounted";
-    }
-    return "No card detected in onboard slot";
-}
+bool    storage_has_sd()   { return s_has_sd; }
+SdState storage_sd_state() { return s_state; }
 
 bool storage_format_sd() {
     if (s_has_sd) SD_MMC.end();
     if (sd_mount(true)) {
         s_has_sd = true;
+        s_state  = SdState::Ready;
         Serial.printf("[storage] SD formatted+mounted  size=%llu MB\n",
                       SD_MMC.cardSize() / (1024ULL * 1024ULL));
         return true;
     }
-    snprintf(s_last_err, sizeof(s_last_err), "No card responding - reseat card");
+    snprintf(s_last_err, sizeof(s_last_err), "Format failed - reseat the card and reboot");
     Serial.printf("[storage] %s\n", s_last_err);
     return false;
 }
 
 const char* storage_last_error() { return s_last_err; }
+
+void storage_use_internal() {
+    if (s_has_sd) SD_MMC.end();
+    s_has_sd = false;
+    littlefs_mount();
+    Serial.println("[storage] switched to LittleFS by user");
+}
 
 uint64_t storage_total_bytes() {
     return s_has_sd ? SD_MMC.totalBytes() : (uint64_t)LittleFS.totalBytes();

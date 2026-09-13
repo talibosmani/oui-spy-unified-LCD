@@ -12,12 +12,19 @@ void ui_chrome_update_battery(uint8_t pct, bool charging);
 // Update the storage indicator ("SD" or "LFS").
 void ui_chrome_update_storage(bool has_sd);
 
-// Show a full-screen SD card dialog (boot-time).
-// probe_text: diagnostic line shown under the title (e.g. "No response").
-// on_format:  called when user taps Format; return nullptr on success (dialog
-//             closes) or an error string (shown in the dialog, which stays open).
-using SdFormatCb = const char* (*)();
-void ui_chrome_show_sd_dialog(const char *probe_text, SdFormatCb on_format);
+// Boot-time storage chooser (full screen, lives on lv_layer_top()).
+//   status:    line under the title, e.g. "FAT32 card ready - 29.7 GB"
+//   hint:      smaller grey explanation, may be nullptr
+//   primary:   label for the green button; nullptr hides it
+//   on_primary: runs on green tap; return nullptr to close, or an error string
+//               which is shown in red and keeps the dialog open
+//   secondary: label for the grey button
+//   on_secondary: runs on grey tap, dialog then closes
+using SdPrimaryCb   = const char* (*)();
+using SdSecondaryCb = void (*)();
+void ui_chrome_show_sd_dialog(const char *status, const char *hint,
+                              const char *primary,   SdPrimaryCb   on_primary,
+                              const char *secondary, SdSecondaryCb on_secondary);
 
 // Show/hide the bottom exit button (hidden on the menu screen).
 void ui_chrome_show_exit(bool show);

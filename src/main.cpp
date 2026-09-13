@@ -144,6 +144,48 @@ static void on_mode_selected(AppMode mode) {
     }
 }
 
+// ---- Boot-time storage chooser ----------------------------------------------
+
+static void use_internal() {
+    storage_use_internal();
+    ui_chrome_update_storage(false);
+}
+
+static void show_storage_chooser() {
+    static char status[64];
+    switch (storage_sd_state()) {
+        case SdState::Ready: {
+            double gb = storage_total_bytes() / (1024.0 * 1024.0 * 1024.0);
+            snprintf(status, sizeof(status), "FAT32 card ready - %.1f GB", gb);
+            ui_chrome_show_sd_dialog(
+                status,
+                "Detections and PCAP captures will be saved to the card.",
+                "Continue with SD card", []() -> const char* { return nullptr; },
+                "Use internal storage instead", use_internal);
+            break;
+        }
+        case SdState::NotFat32:
+            ui_chrome_show_sd_dialog(
+                "Card detected but it is not FAT32",
+                "Cards over 32 GB ship as exFAT, which this board cannot read.\n"
+                "Formatting erases everything on the card.",
+                "Format card to FAT32", []() -> const char* {
+                    if (!storage_format_sd()) return storage_last_error();
+                    ui_chrome_update_storage(true);
+                    return nullptr;
+                },
+                "Use internal storage", nullptr);
+            break;
+        case SdState::None:
+            ui_chrome_show_sd_dialog(
+                "No SD card detected",
+                "Insert a FAT32 microSD into the slot on the back and reboot to use it.",
+                nullptr, nullptr,
+                "Continue with internal storage", nullptr);
+            break;
+    }
+}
+
 // ---- Arduino entry points ---------------------------------------------------
 
 void setup() {
@@ -189,13 +231,7 @@ void setup() {
 
     // Must come after ui_menu_create(): the dialog lives on lv_layer_top() and
     // is shown over the loaded menu screen.
-    if (!storage_has_sd()) {
-        ui_chrome_show_sd_dialog(storage_sd_probe(), []() -> const char* {
-            if (!storage_format_sd()) return storage_last_error();
-            ui_chrome_update_storage(true);
-            return nullptr;
-        });
-    }
+    show_storage_chooser();
     Serial.println("[main] ready");
 }
 

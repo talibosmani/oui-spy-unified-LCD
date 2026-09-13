@@ -12,10 +12,17 @@ bool     storage_has_sd();
 uint64_t storage_total_bytes();
 uint64_t storage_used_bytes();
 
-// Raw CMD0 probe — human-readable line describing whether a card answers at all.
-const char* storage_sd_probe();
+enum class SdState {
+    None,      // no card answers on the SDMMC bus
+    NotFat32,  // card answers but the filesystem can't be mounted
+    Ready      // mounted, FAT32
+};
+SdState  storage_sd_state();
 
 // Format the SD card as FAT32 then re-mount it.
 // Returns true if the card is now mounted as SD; else see storage_last_error().
 bool        storage_format_sd();
 const char* storage_last_error();
+
+// Unmount SD (if mounted) and switch all logging to LittleFS.
+void storage_use_internal();
