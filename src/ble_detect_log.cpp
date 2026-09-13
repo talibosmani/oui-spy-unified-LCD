@@ -22,7 +22,9 @@ static int         s_count     = 0;
 static bool        s_inited    = false;
 static bool        s_dirty     = false;
 static uint32_t    s_last_save = 0;
+static bool        s_urgent    = false;
 static const uint32_t SAVE_INTERVAL_MS = 60000;
+static const uint32_t NEW_ENTRY_FLUSH_MS = 2000;
 
 static void save() {
     File f = storage_fs().open(LOG_PATH, "w");
@@ -44,6 +46,7 @@ static void save() {
     f.close();
     s_last_save = millis();
     s_dirty     = false;
+    s_urgent     = false;
 }
 
 static void load() {
@@ -69,6 +72,10 @@ static void load() {
 }
 
 void ble_detect_log_update(const Detection &d) {
+    // Debug-mode "SCAN" rows are every unmatched BLE device nearby — not
+    // surveillance hits. Logging them evicts real matches and, past 150
+    // unique MACs, forces a full file rewrite per new phone.
+    if (strcmp(d.method, "SCAN") == 0) return;
     if (!s_inited) { load(); s_inited = true; }
     const uint32_t now = millis() / 1000;
 
@@ -98,12 +105,13 @@ void ble_detect_log_update(const Detection &d) {
     s_table[slot].last_seen  = now;
     s_table[slot].times_seen = 1;
     s_table[slot].rssi_peak  = d.rssi;
-    save();
+    s_dirty = s_urgent = true; // new entry — flushed by tick() within NEW_ENTRY_FLUSH_MS
     Serial.printf("[ble_detect_log] new %s (%s) total=%d\n", d.mac, d.vendor, s_count);
 }
 
 void ble_detect_log_tick() {
-    if (s_dirty && (millis() - s_last_save >= SAVE_INTERVAL_MS)) {
+    uint32_t since = millis() - s_last_save;
+    if (s_dirty && (since >= SAVE_INTERVAL_MS || (s_urgent && since >= NEW_ENTRY_FLUSH_MS))) {
         save();
     }
 }

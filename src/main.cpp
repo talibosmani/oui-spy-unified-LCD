@@ -258,7 +258,6 @@ void loop() {
             ui_detector_add(det);
             ++n;
         }
-        ble_detect_log_tick(); // flush dirty log at most once per minute
     }
 
     if (s_state == State::FlockYou) {
@@ -272,7 +271,6 @@ void loop() {
             ++n;
         }
         ui_flockyou_tick();
-        flock_log_tick();
     }
 
     if (s_state == State::BLESniff) {
@@ -283,7 +281,6 @@ void loop() {
             ui_blesniff_add(se);
             ++n;
         }
-        ble_sniff_log_tick();
     }
 
     if (s_state == State::Foxhunter) {
@@ -306,7 +303,6 @@ void loop() {
             ui_skyspy_add(de);
             ++n;
         }
-        skyspy_log_tick();
     }
 
     if (s_state == State::PCAP) {
@@ -325,6 +321,12 @@ void loop() {
                 ui_pcap_show_storage_warning(true);
         }
     }
+
+    // ---- Log flush (all modes) — cheap compares; writes only when dirty ----
+    ble_detect_log_tick();
+    ble_sniff_log_tick();
+    skyspy_log_tick();
+    flock_log_tick();
 
     // ---- Audio alert service (plays any pending alert, brief blocking) ------
     audio_alert_service();
