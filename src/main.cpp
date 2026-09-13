@@ -206,6 +206,7 @@ void loop() {
             ui_detector_add(det);
             ++n;
         }
+        ble_detect_log_tick(); // flush dirty log at most once per minute
     }
 
     if (s_state == State::FlockYou) {

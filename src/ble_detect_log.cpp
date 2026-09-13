@@ -18,8 +18,11 @@ struct DetectEntry {
 };
 
 static DetectEntry s_table[MAX_ENTRIES];
-static int         s_count  = 0;
-static bool        s_inited = false;
+static int         s_count     = 0;
+static bool        s_inited    = false;
+static bool        s_dirty     = false;
+static uint32_t    s_last_save = 0;
+static const uint32_t SAVE_INTERVAL_MS = 60000; // flush re-seen updates at most once/min
 
 static void load() {
     if (!LittleFS.begin(false)) return;
@@ -60,8 +63,10 @@ static void save() {
         o["times_seen"] = s_table[i].times_seen;
         o["rssi_peak"]  = s_table[i].rssi_peak;
     }
-    serializeJsonPretty(doc, f);
+    serializeJson(doc, f);
     f.close();
+    s_last_save = millis();
+    s_dirty     = false;
 }
 
 void ble_detect_log_update(const Detection &d) {
@@ -73,7 +78,7 @@ void ble_detect_log_update(const Detection &d) {
             s_table[i].last_seen = now;
             s_table[i].times_seen++;
             if (d.rssi > s_table[i].rssi_peak) s_table[i].rssi_peak = d.rssi;
-            save();
+            s_dirty = true; // flush via tick(), not here — avoids flash write per detection
             return;
         }
     }
@@ -94,6 +99,12 @@ void ble_detect_log_update(const Detection &d) {
     s_table[slot].last_seen  = now;
     s_table[slot].times_seen = 1;
     s_table[slot].rssi_peak  = d.rssi;
-    save();
+    save(); // new entry — persist immediately so it survives a power-off
     Serial.printf("[ble_detect_log] new %s (%s) total=%d\n", d.mac, d.vendor, s_count);
+}
+
+void ble_detect_log_tick() {
+    if (s_dirty && (millis() - s_last_save >= SAVE_INTERVAL_MS)) {
+        save();
+    }
 }
