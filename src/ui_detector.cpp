@@ -6,6 +6,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <set>
+#include <map>
 #include <string>
 
 static lv_obj_t  *s_screen      = nullptr;
@@ -14,10 +15,10 @@ static lv_obj_t  *s_dot         = nullptr;
 static lv_obj_t  *s_count_lbl   = nullptr;
 static lv_anim_t  s_dot_anim;
 static DetBackCb  s_on_back      = nullptr;
-static int        s_count        = 0;   // rows added (events)
-static int        s_hits         = 0;   // matched-vendor events (non-debug rows)
-static std::set<std::string> s_unique_hits;   // distinct matched MACs
-static std::set<std::string> s_unique_scan;   // distinct debug-scan MACs
+static int        s_count        = 0;   // rows ever added (empty-state gate)
+static std::map<std::string, lv_obj_t*> s_rows;  // MAC -> visible row
+static std::set<std::string> s_unique_hits;   // distinct matched MACs this session
+static std::set<std::string> s_unique_scan;   // distinct debug-scan MACs this session
 #define UNIQUE_CAP 2000                        // stop tracking beyond this
 
 // ---- helpers ----------------------------------------------------------------
@@ -185,7 +186,7 @@ void ui_detector_create(DetBackCb on_back) {
     lv_obj_set_flex_align(footer, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
 
     s_count_lbl = lv_label_create(footer);
-    lv_label_set_text(s_count_lbl, "0 devices  \xc2\xb7  0 alerts");
+    lv_label_set_text(s_count_lbl, "0 detected");
     lv_obj_set_style_text_font(s_count_lbl, &lv_font_montserrat_16, 0);
     lv_obj_set_style_text_color(s_count_lbl, lv_color_hex(0x444444), 0);
 
@@ -199,13 +200,48 @@ void ui_detector_destroy() {
         s_screen = nullptr;
     }
     s_list = s_dot = s_count_lbl = nullptr;
-    s_count = s_hits = 0;
+    s_count = 0;
+    s_rows.clear();
     s_unique_hits.clear();
     s_unique_scan.clear();
 }
 
+static void update_footer() {
+    char buf[48];
+    if (s_unique_scan.empty()) {
+        snprintf(buf, sizeof(buf), "%u detected",
+                 (unsigned)s_unique_hits.size());
+    } else {
+        snprintf(buf, sizeof(buf), "%u hit%s  \xc2\xb7  %u scanned",
+                 (unsigned)s_unique_hits.size(), s_unique_hits.size() == 1 ? "" : "s",
+                 (unsigned)s_unique_scan.size());
+    }
+    lv_label_set_text(s_count_lbl, buf);
+}
+
 void ui_detector_add(const Detection &d) {
     if (!s_list) return;
+
+    const bool is_scan = (strcmp(d.method, "SCAN") == 0);
+    std::set<std::string> &uniq = is_scan ? s_unique_scan : s_unique_hits;
+    if (uniq.size() < UNIQUE_CAP) uniq.insert(d.mac);
+
+    // Re-seen device: refresh RSSI on its existing row and bring it to the top.
+    // One device is one detection; the log file tracks the repeat count.
+    auto it = s_rows.find(d.mac);
+    if (it != s_rows.end()) {
+        lv_obj_t *row = it->second;
+        lv_obj_t *rssi_lbl = lv_obj_get_child(row, 2);
+        if (rssi_lbl) {
+            char rssi_buf[8];
+            snprintf(rssi_buf, sizeof(rssi_buf), "%ddBm", (int)d.rssi);
+            lv_label_set_text(rssi_lbl, rssi_buf);
+            lv_obj_set_style_text_color(rssi_lbl, rssi_color(d.rssi), 0);
+        }
+        lv_obj_move_to_index(row, 0);
+        update_footer();
+        return;
+    }
 
     // Remove the empty-state label on first real detection
     if (s_count == 0) {
@@ -220,7 +256,11 @@ void ui_detector_add(const Detection &d) {
     uint32_t nrows = lv_obj_get_child_cnt(s_list);
     if (nrows >= MAX_DETECTION_ROWS) {
         lv_obj_t *oldest = lv_obj_get_child(s_list, -1);
-        if (oldest) lv_obj_del(oldest);
+        if (oldest) {
+            for (auto ri = s_rows.begin(); ri != s_rows.end(); ++ri)
+                if (ri->second == oldest) { s_rows.erase(ri); break; }
+            lv_obj_del(oldest);
+        }
     }
 
     // Row (newest at top)
@@ -243,6 +283,7 @@ void ui_detector_add(const Detection &d) {
     lv_obj_set_style_pad_column(row, 8, 0);
     lv_obj_set_scroll_dir(row, LV_DIR_NONE);
     lv_obj_move_to_index(row, 0);
+    s_rows[d.mac] = row;
 
     // Vendor badge
     lv_obj_t *badge_bg = lv_obj_create(row);
@@ -287,25 +328,7 @@ void ui_detector_add(const Detection &d) {
     lv_obj_set_style_text_font(rssi_lbl, &lv_font_montserrat_16, 0);
     lv_obj_set_style_text_color(rssi_lbl, rssi_color(d.rssi), 0);
 
-    // Footer: distinct devices vs raw events, so re-alerts of the same
-    // device (every 8 s) and debug re-listings (every 3 s) don't read as
-    // hundreds of "detections".
-    const bool is_scan = (strcmp(d.method, "SCAN") == 0);
-    std::set<std::string> &uniq = is_scan ? s_unique_scan : s_unique_hits;
-    if (uniq.size() < UNIQUE_CAP) uniq.insert(d.mac);
-    if (!is_scan) s_hits++;
-
-    char buf[64];
-    if (s_unique_scan.empty()) {
-        snprintf(buf, sizeof(buf), "%u device%s  \xc2\xb7  %d alert%s",
-                 (unsigned)s_unique_hits.size(), s_unique_hits.size() == 1 ? "" : "s",
-                 s_hits, s_hits == 1 ? "" : "s");
-    } else {
-        snprintf(buf, sizeof(buf), "%u hit%s  \xc2\xb7  %u scanned  \xc2\xb7  %d ev",
-                 (unsigned)s_unique_hits.size(), s_unique_hits.size() == 1 ? "" : "s",
-                 (unsigned)s_unique_scan.size(), s_count);
-    }
-    lv_label_set_text(s_count_lbl, buf);
+    update_footer();
 }
 
 void ui_detector_set_scanning(bool active) {
