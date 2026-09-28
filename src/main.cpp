@@ -28,7 +28,6 @@
 #include "skyspy_log.h"
 #include "flock_log.h"
 #include "storage.h"
-#include "ui_selftest.h"
 #include <NimBLEDevice.h>
 
 // ---- App state --------------------------------------------------------------
@@ -215,9 +214,6 @@ void setup() {
     // Quick-settings panel (swipe-down from top to open)
     qs_begin();
 
-    // Self-test overlay (swipe-left from menu to open)
-    selftest_begin();
-
     axp_begin();
     auto bat = axp_read();
     ui_chrome_update_battery(bat.pct, bat.charging);
@@ -242,10 +238,6 @@ void loop() {
     // ---- Quick-settings panel gesture ----------------------------------------
     if (display::consume_swipe_from_top()) qs_open();
     if (display::consume_swipe_up()       ) qs_close();
-
-    // ---- Self-test overlay gesture (menu only) --------------------------------
-    if (display::consume_swipe_left() && s_state == State::Menu)
-        selftest_open();
 
     // ---- Per-mode work -------------------------------------------------------
     // Drain at most 3 entries per loop tick — creating many LVGL rows at once
