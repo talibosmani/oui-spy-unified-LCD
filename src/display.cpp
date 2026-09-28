@@ -33,10 +33,35 @@ static void flush_cb(lv_disp_drv_t *drv, const lv_area_t *area, lv_color_t *px) 
 // CO5300 requires 2-pixel-aligned flush windows; without this, partial updates tear.
 static void rounder_cb(lv_disp_drv_t *drv, lv_area_t *area) {
     (void)drv;
+#if DISPLAY_ROTATION == 90 || DISPLAY_ROTATION == 270
+    // LVGL rotates in horizontal chunks of (LV_DISP_ROT_MAX_BUF / area_width)
+    // rows, and that chunk height lands on the panel's X axis. Only a
+    // full-width area makes the chunk height a constant even number, which is
+    // what keeps every rotated window 2-pixel aligned.
+    area->x1 = 0;
+    area->x2 = SCREEN_W - 1;
+#else
     area->x1 &= ~1;
-    area->y1 &= ~1;
     area->x2 |= 1;
+#endif
+    area->y1 &= ~1;
     area->y2 |= 1;
+}
+
+// Map raw panel coordinates to on-screen coordinates for the active rotation.
+// LVGL rotates indev points itself for widget hit-testing (lv_indev.c), so
+// data->point stays raw; this exists only for the swipe logic, which compares
+// the raw values directly and would otherwise read swipes in the wrong axis.
+static inline void rot_point(int rx, int ry, int *ox, int *oy) {
+#if   DISPLAY_ROTATION == 90
+    *ox = (SCREEN_H - 1) - ry;  *oy = rx;
+#elif DISPLAY_ROTATION == 180
+    *ox = (SCREEN_W - 1) - rx;  *oy = (SCREEN_H - 1) - ry;
+#elif DISPLAY_ROTATION == 270
+    *ox = ry;                   *oy = (SCREEN_W - 1) - rx;
+#else
+    *ox = rx;                   *oy = ry;
+#endif
 }
 
 // Swipe gesture state — written in touch_read_cb (main loop), read in consume_*()
@@ -45,7 +70,6 @@ static int16_t s_last_x  = -1, s_last_y  = -1;
 static bool    s_pressed  = false;
 static bool    s_swipe_from_top = false;
 static bool    s_swipe_up       = false;
-static bool    s_swipe_left     = false;
 
 // Two-stage phantom rejection for CST9217:
 //
@@ -120,16 +144,17 @@ static void touch_read_cb(lv_indev_drv_t *drv, lv_indev_data_t *data) {
                 s_release_x  = s_last_x;
                 s_release_y  = s_last_y;
                 if (s_start_y >= 0 && s_last_y >= 0) {
-                    int dy     = s_last_y - s_start_y;
-                    int dx_raw = s_last_x - s_start_x;
+                    int sx, sy, lx, ly;
+                    rot_point(s_start_x, s_start_y, &sx, &sy);
+                    rot_point(s_last_x,  s_last_y,  &lx, &ly);
+                    int dy     = ly - sy;
+                    int dx_raw = lx - sx;
                     int dx     = dx_raw < 0 ? -dx_raw : dx_raw;
                     int dy_abs = dy  < 0 ? -dy  : dy;
-                    if (dy >= 70 && s_start_y < 50)
+                    if (dy >= 70 && sy < 50)
                         s_swipe_from_top = true;
                     if (dy <= -70 && (-dy) > dx)
                         s_swipe_up = true;
-                    if (dx_raw <= -50 && dx * 10 > dy_abs * 7)
-                        s_swipe_left = true;
                 }
             }
         }
@@ -171,6 +196,12 @@ bool begin() {
     s_disp_drv.flush_cb   = flush_cb;
     s_disp_drv.rounder_cb = rounder_cb;
     s_disp_drv.draw_buf   = &s_draw_buf;
+#if DISPLAY_ROTATION != 0
+    s_disp_drv.sw_rotate  = 1;
+    s_disp_drv.rotated    = (DISPLAY_ROTATION == 90)  ? LV_DISP_ROT_90
+                          : (DISPLAY_ROTATION == 180) ? LV_DISP_ROT_180
+                                                      : LV_DISP_ROT_270;
+#endif
     lv_disp_drv_register(&s_disp_drv);
 
     if (touch_begin()) {
@@ -201,10 +232,5 @@ bool consume_swipe_up() {
     return v;
 }
 
-bool consume_swipe_left() {
-    bool v = s_swipe_left;
-    s_swipe_left = false;
-    return v;
-}
 
 } // namespace display

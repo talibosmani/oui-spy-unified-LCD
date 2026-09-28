@@ -9,6 +9,12 @@
 #define LCD_QSPI_HZ      80000000
 #define BRIGHTNESS_DEFAULT 200   // 0-255
 
+// Screen rotation in degrees: 0, 90, 180 or 270.
+// The CO5300's MADCTL has no row/column-exchange bit — only X and Y flips — so
+// 0 and 180 are free in hardware, while 90 and 270 are rotated by LVGL in
+// software and cost CPU on every flush.
+#define DISPLAY_ROTATION 90
+
 #define PIN_LCD_CS   12
 #define PIN_LCD_RST  39
 #define PIN_LCD_SCLK 38
