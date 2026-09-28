@@ -171,7 +171,9 @@ static void IRAM_ATTR wifi_sniffer_cb(void *buf, wifi_promiscuous_pkt_type_t typ
     }
     // SSID "flock" keyword fallback (catches Flock cameras regardless of OUI)
     if (!vendor && d.ssid[0]) {
-        for (int i = 0; d.ssid[i]; i++) {
+        int slen = 0;
+        while (slen < (int)sizeof(d.ssid) && d.ssid[slen]) slen++;
+        for (int i = 0; i + 5 <= slen; i++) {
             if ((d.ssid[i]  |0x20)=='f' && (d.ssid[i+1]|0x20)=='l' &&
                 (d.ssid[i+2]|0x20)=='o' && (d.ssid[i+3]|0x20)=='c' &&
                 (d.ssid[i+4]|0x20)=='k') {
@@ -203,9 +205,12 @@ static void IRAM_ATTR wifi_sniffer_cb(void *buf, wifi_promiscuous_pkt_type_t typ
 // --- Public API ---------------------------------------------------------------
 
 void flockscanner_init() {
-    // Pre-init WiFi stack alongside BLE so mode switches are instant
+    // Pre-init the WiFi stack alongside BLE so mode switches are instant.
+    // disconnect(false) drops any stored AP association without powering the
+    // radio down — disconnect(true) calls STA.end(), which stops the driver
+    // and makes the later esp_wifi_set_promiscuous() call fail.
     WiFi.mode(WIFI_STA);
-    WiFi.disconnect(true);
+    WiFi.disconnect(false);
     Serial.println("[wifi] stack ready");
 }
 
@@ -218,12 +223,25 @@ void flockscanner_start() {
     s_channel = CH_LIST[0];
     s_last_hop = 0;
 
-    esp_wifi_set_promiscuous(false);
-    esp_wifi_set_promiscuous_rx_cb(wifi_sniffer_cb);
-    esp_wifi_set_promiscuous(true);
-    esp_wifi_set_channel(s_channel, WIFI_SECOND_CHAN_NONE);
+    // The radio must be running before promiscuous mode can be enabled.
+    // flockscanner_init() leaves it stopped, and anything that ran an AP
+    // (the PCAP download server) leaves it in the wrong mode.
+    WiFi.mode(WIFI_STA);
+    esp_err_t e = esp_wifi_start();
+    if (e != ESP_OK && e != ESP_ERR_WIFI_NOT_STOPPED)
+        Serial.printf("[wifi] start failed: %s\n", esp_err_to_name(e));
 
-    Serial.printf("[wifi] promiscuous on ch%d\n", s_channel);
+    esp_wifi_set_promiscuous(false);
+    if ((e = esp_wifi_set_promiscuous_rx_cb(wifi_sniffer_cb)) != ESP_OK)
+        Serial.printf("[wifi] rx_cb failed: %s\n", esp_err_to_name(e));
+    if ((e = esp_wifi_set_promiscuous(true)) != ESP_OK)
+        Serial.printf("[wifi] promiscuous failed: %s\n", esp_err_to_name(e));
+    if ((e = esp_wifi_set_channel(s_channel, WIFI_SECOND_CHAN_NONE)) != ESP_OK)
+        Serial.printf("[wifi] set_channel failed: %s\n", esp_err_to_name(e));
+
+    bool on = false;
+    esp_wifi_get_promiscuous(&on);
+    Serial.printf("[wifi] promiscuous=%d ch=%d\n", (int)on, s_channel);
 }
 
 void flockscanner_stop() {
